@@ -3,8 +3,9 @@
 
 openapi: 3.0.3
 info:
-    title: ""
-    version: 0.0.1
+    title: "Chat Application API"
+    description: "Real-time chat application API with support for users, rooms, and messaging"
+    version: 1.0.0
 paths:
     /api/v1/messages:
         post:

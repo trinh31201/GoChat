@@ -98,11 +98,17 @@ func NewHTTPServer(
 	// Serve static files for testing UI
 	webDir := netHttp.Dir("./web")
 	srv.HandlePrefix("/web/", netHttp.StripPrefix("/web/", netHttp.FileServer(webDir)))
-	
-	// Redirect root to test client for convenience
+
+	// Serve OpenAPI spec for Swagger UI
+	srv.HandleFunc("/openapi.yaml", func(w netHttp.ResponseWriter, r *netHttp.Request) {
+		w.Header().Set("Content-Type", "text/yaml")
+		netHttp.ServeFile(w, r, "./openapi.yaml")
+	})
+
+	// Redirect root to login page
 	srv.HandleFunc("/", func(w netHttp.ResponseWriter, r *netHttp.Request) {
 		if r.URL.Path == "/" {
-			netHttp.Redirect(w, r, "/web/chat-test.html", netHttp.StatusTemporaryRedirect)
+			netHttp.Redirect(w, r, "/web/login.html", netHttp.StatusTemporaryRedirect)
 			return
 		}
 		netHttp.NotFound(w, r)

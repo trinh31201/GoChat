@@ -32,8 +32,9 @@ WORKDIR /root/
 
 # Copy the binary from builder
 COPY --from=builder /app/chat-app .
-COPY --from=builder /app/configs ./configs
 COPY --from=builder /app/web ./web
+COPY --from=builder /app/openapi.yaml ./openapi.yaml
+# Note: configs directory is mounted as a volume in docker-compose.yml
 
 # Expose ports
 EXPOSE 8000 9000
