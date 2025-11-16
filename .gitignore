@@ -55,7 +55,7 @@ tmp/
 temp/
 
 # Configuration (keep example configs)
-configs/config.yaml
+# configs/config.yaml  # Allow committing for Railway deployment
 !configs/config.example.yaml
 
 # Planning documents and notes

@@ -34,10 +34,10 @@ WORKDIR /root/
 COPY --from=builder /app/chat-app .
 COPY --from=builder /app/web ./web
 COPY --from=builder /app/openapi.yaml ./openapi.yaml
+COPY --from=builder /app/configs ./configs
 
 # Expose ports
 EXPOSE 8000 9000
 
 # Run the application
-# Note: App will load .env if present, or use Railway environment variables
-CMD ["./chat-app"]
+CMD ["./chat-app", "-conf", "./configs"]
