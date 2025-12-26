@@ -1,6 +1,6 @@
 // Configuration
-const API_URL = 'https://chat-app-production-d5c0.up.railway.app/api/v1';
-const WS_URL = 'wss://chat-app-production-d5c0.up.railway.app/ws';
+const API_URL = 'http://localhost:8001/api/v1';
+const WS_URL = 'ws://localhost:8001/ws';
 
 // Global State
 let ws = null;

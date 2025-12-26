@@ -31,8 +31,10 @@ services:
       - postgres
       - redis
     environment:
-      - DB_HOST=postgres
-      - REDIS_HOST=redis
+      - DATABASE_URL=postgresql://chatuser:chatpass@postgres:5432/chatdb?sslmode=disable
+      - REDIS_URL=redis:6379
+      - REDIS_PASSWORD=
+      - JWT_SECRET=your-secret-key-change-in-production
     ports:
       - "8001:8000"  # HTTP/REST
       - "9001:9000"  # gRPC

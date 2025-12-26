@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat App</title>
+    <link rel="stylesheet" href="/web/styles.css">
+</head>
+<body class="chat-page">
+    <div class="chat-container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h2>Chat Rooms</h2>
+                <button class="btn btn-small" onclick="showCreateRoomModal()">+ New Room</button>
+            </div>
+            <div class="user-info">
+                <div class="user-avatar">👤</div>
+                <div class="user-details">
+                    <div class="user-name" id="currentUsername">Loading...</div>
+                    <div class="user-status online">Online</div>
+                </div>
+                <button class="btn-logout" onclick="logout()" title="Logout">🚪</button>
+            </div>
+            <div class="rooms-list" id="roomsList">
+                <div class="loading">Loading rooms...</div>
+            </div>
+        </div>
+
+        <!-- Main Chat Area -->
+        <div class="main-content">
+            <!-- Welcome Screen -->
+            <div id="welcomeScreen" class="welcome-screen">
+                <h1>👋 Welcome to Chat App!</h1>
+                <p>Select a room from the sidebar to start chatting</p>
+                <p>or create a new room to get started</p>
+            </div>
+
+            <!-- Chat Screen -->
+            <div id="chatScreen" class="chat-screen" style="display: none;">
+                <!-- Chat Header -->
+                <div class="chat-header">
+                    <div class="room-info">
+                        <h3 id="currentRoomName">Room Name</h3>
+                        <span id="currentRoomType" class="room-type-badge">public</span>
+                        <span id="memberCount" class="member-count">0 members</span>
+                    </div>
+                    <button class="btn btn-danger btn-small" onclick="leaveRoom()">Leave Room</button>
+                </div>
+
+                <!-- Messages Area -->
+                <div class="messages-container" id="messagesContainer">
+                    <div class="loading">Loading messages...</div>
+                </div>
+
+                <!-- Message Input -->
+                <div class="message-input-container">
+                    <form id="messageForm">
+                        <input
+                            type="text"
+                            id="messageInput"
+                            placeholder="Type a message..."
+                            autocomplete="off"
+                            required
+                        >
+                        <button type="submit" class="btn btn-primary">Send</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Room Modal -->
+    <div id="createRoomModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Create New Room</h2>
+                <button class="modal-close" onclick="closeCreateRoomModal()">&times;</button>
+            </div>
+            <form id="createRoomForm">
+                <div class="form-group">
+                    <label for="roomName">Room Name</label>
+                    <input type="text" id="roomName" required placeholder="Enter room name">
+                </div>
+                <div class="form-group">
+                    <label for="roomDescription">Description</label>
+                    <textarea id="roomDescription" rows="3" placeholder="Optional description"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="roomType">Room Type</label>
+                    <select id="roomType">
+                        <option value="public">Public - Anyone can join</option>
+                        <option value="private">Private - Invite only</option>
+                    </select>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeCreateRoomModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create Room</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Alert Container -->
+    <div id="alertContainer" class="alert-container"></div>
+
+    <script src="/web/chat.js"></script>
+</body>
+</html>..
+][\
+]
