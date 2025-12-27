@@ -34,6 +34,23 @@ type Client struct {
 	RoomID   int64
 }
 
+// safeSend safely sends a message to a client's channel with panic recovery
+func (c *Client) safeSend(message []byte) bool {
+	defer func() {
+		if r := recover(); r != nil {
+			c.Hub.log.Warnf("Recovered from panic sending to client %s (user_id=%d): %v", c.Username, c.ID, r)
+		}
+	}()
+
+	select {
+	case c.Send <- message:
+		return true
+	default:
+		// Channel is full
+		return false
+	}
+}
+
 // Hub maintains active WebSocket connections
 type Hub struct {
 	// Registered clients by room
@@ -108,10 +125,9 @@ func (h *Hub) Run() {
 				h.log.Infof("Broadcasting user_joined to %d clients", len(roomClients))
 				for roomClient := range roomClients {
 					go func(cl *Client) {
-						select {
-						case cl.Send <- message:
+						if cl.safeSend(message) {
 							h.log.Infof("Join notification sent to %s", cl.Username)
-						default:
+						} else {
 							h.log.Warnf("Failed to send join notification to %s", cl.Username)
 						}
 					}(roomClient)
@@ -155,10 +171,9 @@ func (h *Hub) Run() {
 					h.log.Infof("Broadcasting user_left to %d remaining clients", len(clients))
 					for remainingClient := range clients {
 						go func(cl *Client) {
-							select {
-							case cl.Send <- message:
+							if cl.safeSend(message) {
 								h.log.Infof("Leave notification sent to %s", cl.Username)
-							default:
+							} else {
 								h.log.Warnf("Failed to send leave notification to %s", cl.Username)
 							}
 						}(remainingClient)
@@ -260,7 +275,7 @@ func (c *Client) readPump(jwtSecret string) {
 			
 		case "ping":
 			// Respond to ping
-			c.Send <- []byte(`{"type":"pong"}`)
+			c.safeSend([]byte(`{"type":"pong"}`))
 		}
 	}
 }
@@ -370,7 +385,7 @@ func (c *Client) joinRoom(roomID int64) error {
 		"room":    room,
 	}
 	msgBytes, _ := json.Marshal(roomInfo)
-	c.Send <- msgBytes
+	c.safeSend(msgBytes)
 	
 	c.Hub.log.Infof("EXIT joinRoom: user_id=%d successfully joined room_id=%d", c.ID, roomID)
 	return nil
@@ -443,11 +458,10 @@ func (c *Client) sendMessage(content string) error {
 		sentCount := 0
 		for client := range clients {
 			go func(cl *Client) {
-				select {
-				case cl.Send <- message:
+				if cl.safeSend(message) {
 					c.Hub.log.Infof("Message sent to client %s (user_id=%d)", cl.Username, cl.ID)
 					sentCount++
-				default:
+				} else {
 					// Client's send channel is full, remove it
 					c.Hub.log.Warnf("Client %s (user_id=%d) send channel full, removing client", cl.Username, cl.ID)
 					c.Hub.unregister <- cl
@@ -467,7 +481,7 @@ func (c *Client) sendError(message string) {
 		"message": message,
 	}
 	msgBytes, _ := json.Marshal(errMsg)
-	c.Send <- msgBytes
+	c.safeSend(msgBytes)
 }
 
 // sendSuccess sends a success message to the client
@@ -477,5 +491,5 @@ func (c *Client) sendSuccess(message string) {
 		"message": message,
 	}
 	msgBytes, _ := json.Marshal(successMsg)
-	c.Send <- msgBytes
+	c.safeSend(msgBytes)
 }
