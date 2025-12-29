@@ -12,15 +12,35 @@ services:
       - "5433:5432"
     volumes:
       - newchat_postgres_data:/var/lib/postgresql/data
-      - ./schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
     networks:
       - chat-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chatuser -d chatdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
     container_name: newchat-redis
     ports:
       - "6381:6379"
+    networks:
+      - chat-network
+
+  migrate:
+    image: migrate/migrate
+    container_name: newchat-migrate
+    volumes:
+      - ./migrations:/migrations
+    command: [
+      "-path", "/migrations",
+      "-database", "postgres://chatuser:chatpass@postgres:5432/chatdb?sslmode=disable",
+      "up"
+    ]
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - chat-network
 
