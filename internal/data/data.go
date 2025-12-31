@@ -13,9 +13,10 @@ import (
 
 // ProviderSet is data providers.
 var ProviderSet = wire.NewSet(
-	NewData, 
-	NewUserRepo, 
-	NewRoomRepo, 
+	NewData,
+	NewRedisClient,
+	NewUserRepo,
+	NewRoomRepo,
 	NewMessageRepo,
 	// Biz adapters
 	NewUserRepoAdapter,
@@ -88,4 +89,9 @@ func NewData(c *conf.Data, logger log.Logger) (*Data, func(), error) {
 		redis: rdb,
 		log:   helper,
 	}, cleanup, nil
+}
+
+// NewRedisClient provides redis client from Data
+func NewRedisClient(d *Data) *redis.Client {
+	return d.redis
 }

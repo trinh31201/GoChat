@@ -10,8 +10,8 @@ data:
   database:
     driver: postgres
     source: ${DATABASE_URL}
-    max_idle_conns: 10
-    max_open_conns: 100
+    max_idle_conns: 50
+    max_open_conns: 300
     conn_max_lifetime: 3600s
   redis:
     addr: ${REDIS_URL}

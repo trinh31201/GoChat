@@ -8,6 +8,7 @@ import (
 	"github.com/go-kratos/kratos/v2/transport/grpc"
 	"github.com/go-kratos/kratos/v2/transport/http"
 	"github.com/google/wire"
+	"github.com/redis/go-redis/v9"
 
 	chatV1 "github.com/yourusername/chat-app/api/chat/v1"
 	userV1 "github.com/yourusername/chat-app/api/user/v1"
@@ -62,14 +63,31 @@ func NewHTTPServer(
 	userService *service.UserService,
 	roomService *service.RoomService,
 	chatService *service.ChatService,
+	redisClient *redis.Client,
 	logger log.Logger,
 ) *http.Server {
 	var opts = []http.ServerOption{
 		http.Middleware(
 			recovery.Recovery(),
-			middleware.CORS(),
 			middleware.JWTAuth(auth),
 		),
+		http.Filter(func(next netHttp.Handler) netHttp.Handler {
+			return netHttp.HandlerFunc(func(w netHttp.ResponseWriter, r *netHttp.Request) {
+				// Set CORS headers
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+				w.Header().Set("Access-Control-Max-Age", "86400")
+
+				// Handle preflight OPTIONS requests
+				if r.Method == "OPTIONS" {
+					w.WriteHeader(netHttp.StatusNoContent)
+					return
+				}
+
+				next.ServeHTTP(w, r)
+			})
+		}),
 	}
 
 	if c.Http.Network != "" {
@@ -85,7 +103,7 @@ func NewHTTPServer(
 	srv := http.NewServer(opts...)
 
 	// Create and start WebSocket hub
-	hub := NewHub(chatService, roomService, logger)
+	hub := NewHub(chatService, roomService, redisClient, logger)
 	go hub.Run()
 
 	// Register HTTP handlers

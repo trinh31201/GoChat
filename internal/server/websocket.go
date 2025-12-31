@@ -11,7 +11,8 @@ import (
 	"github.com/go-kratos/kratos/v2/log"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/gorilla/websocket"
-	
+	"github.com/redis/go-redis/v9"
+
 	chatV1 "github.com/yourusername/chat-app/api/chat/v1"
 	"github.com/yourusername/chat-app/internal/service"
 )
@@ -32,6 +33,16 @@ type Client struct {
 	Send     chan []byte
 	Hub      *Hub
 	RoomID   int64
+}
+
+// RedisMessage represents a message published to Redis Pub/Sub
+type RedisMessage struct {
+	RoomID    int64  `json:"room_id"`
+	MessageID int64  `json:"message_id,omitempty"`
+	UserID    int64  `json:"user_id"`
+	Username  string `json:"username"`
+	Content   string `json:"content"`
+	CreatedAt int64  `json:"created_at,omitempty"`
 }
 
 // safeSend safely sends a message to a client's channel with panic recovery
@@ -55,22 +66,25 @@ func (c *Client) safeSend(message []byte) bool {
 type Hub struct {
 	// Registered clients by room
 	rooms map[int64]map[*Client]bool
-	
+
 	// Register requests from clients
 	register chan *Client
-	
+
 	// Unregister requests from clients
 	unregister chan *Client
-	
+
 	// Mutex for concurrent access
 	mu sync.RWMutex
-	
+
 	// Services
 	chatService *service.ChatService
 	roomService *service.RoomService
-	
+
 	// Logger
 	log *log.Helper
+
+	// Redis Pub/Sub
+	redisClient *redis.Client
 }
 
 // WebSocketMessage represents messages between client and server
@@ -83,15 +97,21 @@ type WebSocketMessage struct {
 }
 
 // NewHub creates a new WebSocket hub
-func NewHub(chatService *service.ChatService, roomService *service.RoomService, logger log.Logger) *Hub {
-	return &Hub{
+func NewHub(chatService *service.ChatService, roomService *service.RoomService, redisClient *redis.Client, logger log.Logger) *Hub {
+	hub := &Hub{
 		rooms:       make(map[int64]map[*Client]bool),
 		register:    make(chan *Client, 100),
 		unregister:  make(chan *Client, 100),
 		chatService: chatService,
 		roomService: roomService,
+		redisClient: redisClient,
 		log:         log.NewHelper(logger),
 	}
+
+	// Start Redis subscriber
+	go hub.subscribeToRedis()
+
+	return hub
 }
 
 // Run starts the hub's event loop
@@ -314,6 +334,8 @@ func (c *Client) authenticate(tokenString string, jwtSecret string) error {
 		return fmt.Errorf("missing token")
 	}
 	
+	
+	
 	// Parse JWT token
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
@@ -430,47 +452,28 @@ func (c *Client) sendMessage(content string) error {
 	}
 	
 	// Debug: Log what we received from chat service
-	c.Hub.log.Infof("Message created: id=%d, room_id=%d, user_id=%d, username=%s", 
+	c.Hub.log.Infof("Message created: id=%d, room_id=%d, user_id=%d, username=%s",
 		msg.Id, msg.RoomId, msg.UserId, msg.Username)
-	
-	// Broadcast message to all clients in the room
-	msgData := map[string]interface{}{
-		"type":       "new_message",
-		"message_id": msg.Id,
-		"room_id":    msg.RoomId,
-		"user_id":    msg.UserId,
-		"username":   msg.Username,
-		"content":    msg.Content,
-		"msg_type":   msg.Type,
-		"created_at": msg.CreatedAt,
+
+	// Publish to Redis instead of local broadcast
+	redisMsg := RedisMessage{
+		RoomID:    msg.RoomId,
+		MessageID: msg.Id,
+		UserID:    msg.UserId,
+		Username:  msg.Username,
+		Content:   msg.Content,
+		CreatedAt: msg.CreatedAt,
 	}
-	msgBytes, _ := json.Marshal(msgData)
-	
-	// Debug: Log broadcasting details
-	c.Hub.log.Infof("Broadcasting message to room %d: sender=%s, content=%s", c.RoomID, c.Username, content)
-	
-	// Get room clients for direct broadcasting
-	roomClients := c.Hub.GetRoomClients(c.RoomID)
-	c.Hub.log.Infof("Room %d has %d connected clients", c.RoomID, len(roomClients))
-	
-	// Broadcast directly to all clients in parallel
-	go func(clients map[*Client]bool, message []byte) {
-		sentCount := 0
-		for client := range clients {
-			go func(cl *Client) {
-				if cl.safeSend(message) {
-					c.Hub.log.Infof("Message sent to client %s (user_id=%d)", cl.Username, cl.ID)
-					sentCount++
-				} else {
-					// Client's send channel is full, remove it
-					c.Hub.log.Warnf("Client %s (user_id=%d) send channel full, removing client", cl.Username, cl.ID)
-					c.Hub.unregister <- cl
-				}
-			}(client)
-		}
-		c.Hub.log.Infof("Direct broadcast complete: attempted to send to %d clients in room %d", len(clients), c.RoomID)
-	}(roomClients, msgBytes)
-	
+
+	msgBytes, _ := json.Marshal(redisMsg)
+	channel := fmt.Sprintf("room:%d", c.RoomID)
+
+	if err := c.Hub.redisClient.Publish(ctx, channel, msgBytes).Err(); err != nil {
+		c.Hub.log.Errorf("Redis publish failed: %v", err)
+		return err
+	}
+
+	c.Hub.log.Infof("Published to Redis channel: %s", channel)
 	return nil
 }
 
@@ -492,4 +495,53 @@ func (c *Client) sendSuccess(message string) {
 	}
 	msgBytes, _ := json.Marshal(successMsg)
 	c.safeSend(msgBytes)
+}
+
+// subscribeToRedis listens for messages from Redis Pub/Sub
+func (h *Hub) subscribeToRedis() {
+	ctx := context.Background()
+	pubsub := h.redisClient.PSubscribe(ctx, "room:*")
+	defer pubsub.Close()
+
+	h.log.Info("Redis Pub/Sub subscriber started - listening to room:*")
+
+	for msg := range pubsub.Channel() {
+		var redisMsg RedisMessage
+		if err := json.Unmarshal([]byte(msg.Payload), &redisMsg); err != nil {
+			h.log.Errorf("Failed to unmarshal Redis message: %v", err)
+			continue
+		}
+
+		h.log.Infof("Received from Redis: channel=%s, room=%d, user=%s, content=%s",
+			msg.Channel, redisMsg.RoomID, redisMsg.Username, redisMsg.Content)
+
+		// Broadcast to local WebSocket clients in this room
+		h.mu.RLock()
+		clients := h.rooms[redisMsg.RoomID]
+		h.mu.RUnlock()
+
+		if len(clients) == 0 {
+			h.log.Infof("No local clients in room %d, skipping broadcast", redisMsg.RoomID)
+			continue
+		}
+
+		// Build WebSocket message
+		msgData := map[string]interface{}{
+			"type":       "new_message",
+			"message_id": redisMsg.MessageID,
+			"room_id":    redisMsg.RoomID,
+			"user_id":    redisMsg.UserID,
+			"username":   redisMsg.Username,
+			"content":    redisMsg.Content,
+			"created_at": redisMsg.CreatedAt,
+		}
+		msgBytes, _ := json.Marshal(msgData)
+
+		h.log.Infof("Broadcasting to %d local clients in room %d", len(clients), redisMsg.RoomID)
+
+		// Send to all local WebSocket connections
+		for client := range clients {
+			go client.safeSend(msgBytes)
+		}
+	}
 }

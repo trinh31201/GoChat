@@ -39,7 +39,8 @@ func wireApp(confServer *conf.Server, confData *conf.Data, auth *conf.Auth, logg
 	chatUseCase := biz.NewChatUseCase(chatRepo, bizRoomRepo, bizUserRepo, logger)
 	chatService := service.NewChatService(chatUseCase, logger)
 	grpcServer := server.NewGRPCServer(confServer, auth, userService, roomService, chatService, logger)
-	httpServer := server.NewHTTPServer(confServer, auth, userService, roomService, chatService, logger)
+	client := data.NewRedisClient(dataData)
+	httpServer := server.NewHTTPServer(confServer, auth, userService, roomService, chatService, client, logger)
 	app := newApp(logger, grpcServer, httpServer)
 	return app, func() {
 		cleanup()
