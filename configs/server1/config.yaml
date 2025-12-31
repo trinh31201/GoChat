@@ -1,0 +1,30 @@
+server:
+  http:
+    addr: 0.0.0.0:8001
+    timeout: 30s
+  grpc:
+    addr: 0.0.0.0:9001
+    timeout: 30s
+
+data:
+  database:
+    driver: postgres
+    source: ${DATABASE_URL}
+    max_idle_conns: 50
+    max_open_conns: 300
+    conn_max_lifetime: 3600s
+  redis:
+    addr: ${REDIS_URL}
+    password: ${REDIS_PASSWORD}
+    db: 0
+    read_timeout: 3s
+    write_timeout: 3s
+
+auth:
+  jwt_secret: ${JWT_SECRET}
+  jwt_expire: 86400s
+
+log:
+  level: info
+  format: json
+  output: stdout
