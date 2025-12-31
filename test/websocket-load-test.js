@@ -9,19 +9,24 @@ const wsMessagesSent = new Counter('websocket_messages_sent');
 const wsMessagesReceived = new Counter('websocket_messages_received');
 const wsErrors = new Counter('websocket_errors');
 
-// Test configuration
+// Test configuration - 10K users
 export const options = {
   stages: [
-    { duration: '10s', target: 20 },   // Warm up to 20 users
-    { duration: '20s', target: 50 },   // Ramp to 50 users
-    { duration: '20s', target: 100 },  // Ramp to 100 users
-    { duration: '10s', target: 100 },  // Stay at 100
-    { duration: '10s', target: 0 },    // Ramp down
+    { duration: '30s', target: 100 },    // Warm up to 100 users
+    { duration: '30s', target: 500 },    // Ramp to 500 users
+    { duration: '1m', target: 1000 },    // Ramp to 1K users
+    { duration: '1m', target: 2500 },    // Ramp to 2.5K users
+    { duration: '1m', target: 5000 },    // Ramp to 5K users
+    { duration: '1m', target: 7500 },    // Ramp to 7.5K users
+    { duration: '1m', target: 10000 },   // Ramp to 10K users
+    { duration: '2m', target: 10000 },   // Hold at 10K for 2 minutes
+    { duration: '30s', target: 5000 },   // Ramp down to 5K
+    { duration: '30s', target: 0 },      // Ramp down to 0
   ],
 };
 
-const BASE_URL = 'http://localhost:8001/api/v1';
-const WS_URL = 'ws://localhost:8001/ws';
+const BASE_URL = 'http://localhost/api/v1';  // Load balancer
+const WS_URL = 'ws://localhost/ws';            // Load balancer
 
 export default function () {
   // Generate unique user
