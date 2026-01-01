@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	netHttp "net/http"
+	_ "net/http/pprof" // pprof for profiling
 	"os"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/go-kratos/kratos/v2/transport/grpc"
 	"github.com/go-kratos/kratos/v2/transport/http"
 	"github.com/joho/godotenv"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	userV1 "github.com/yourusername/chat-app/api/user/v1"
@@ -83,8 +85,11 @@ func main() {
 	// Health endpoint for Docker health check
 	httpServer.HandleFunc("/health", func(w netHttp.ResponseWriter, r *netHttp.Request) {
 		w.WriteHeader(netHttp.StatusOK)
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	})
+
+	// Prometheus metrics endpoint
+	httpServer.Handle("/metrics", promhttp.Handler())
 
 	// ============ 4. START ============
 	app := kratos.New(

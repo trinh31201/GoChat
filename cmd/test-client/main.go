@@ -15,16 +15,20 @@ import (
 
 func main() {
 	// Connect to gRPC server
-	conn, err := grpc.Dial("localhost:9000", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient("localhost:9000", grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		log.Fatalf("Failed to connect: %v", err)
 	}
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			log.Printf("Failed to close connection: %v", err)
+		}
+	}()
 
 	// Create service clients
 	userClient := userV1.NewUserServiceClient(conn)
 	roomClient := chatV1.NewRoomServiceClient(conn)
-	chatClient := chatV1.NewChatServiceClient(conn)
+	_ = chatV1.NewChatServiceClient(conn) // For future use
 
 	ctx := context.Background()
 
@@ -65,7 +69,7 @@ func main() {
 		if err != nil {
 			log.Printf("Get user failed: %v", err)
 		} else {
-			fmt.Printf("✓ Got user: Username=%s, Email=%s, Status=%s\n\n", 
+			fmt.Printf("✓ Got user: Username=%s, Email=%s, Status=%s\n\n",
 				user.Username, user.Email, user.Status)
 		}
 	}
@@ -89,7 +93,7 @@ func main() {
 	fmt.Println("=== Room and Chat Operations ===")
 	fmt.Println("Note: These operations require authentication middleware")
 	fmt.Println("In production, you would pass the JWT token in the request context")
-	
+
 	// Example of how to create a room (will fail without auth)
 	roomResp, err := roomClient.CreateRoom(ctx, &chatV1.CreateRoomRequest{
 		Name:        fmt.Sprintf("Test Room %d", timestamp),

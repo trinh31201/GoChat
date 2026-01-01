@@ -87,7 +87,7 @@ func (r *messageRepo) GetMessages(ctx context.Context, roomID int64, limit int32
 	// Build query with optional beforeID filter
 	var query string
 	var args []interface{}
-	
+
 	if beforeID > 0 {
 		query = `
 			SELECT m.id, m.room_id, m.user_id, u.username, m.content, m.type, 
@@ -114,7 +114,7 @@ func (r *messageRepo) GetMessages(ctx context.Context, roomID int64, limit int32
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get messages: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var messages []*chatV1.Message
 	for rows.Next() {
@@ -152,7 +152,9 @@ func (r *messageRepo) GetMessages(ctx context.Context, roomID int64, limit int32
 		var count int
 		nextQuery := `SELECT COUNT(*) FROM messages WHERE room_id = $1 AND id < $2`
 		lastID := messages[len(messages)-1].Id
-		r.data.db.QueryRowContext(ctx, nextQuery, roomID, lastID).Scan(&count)
+		if err := r.data.db.QueryRowContext(ctx, nextQuery, roomID, lastID).Scan(&count); err != nil {
+			r.log.Warnf("failed to check for more messages: %v", err)
+		}
 		hasMore = count > 0
 	}
 
@@ -253,13 +255,13 @@ func (r *messageRepo) GetUnreadCount(ctx context.Context, userID, roomID int64) 
 // Helper functions for Redis caching
 func (r *messageRepo) cacheMessage(ctx context.Context, message *chatV1.Message) {
 	key := fmt.Sprintf("room:%d:messages", message.RoomId)
-	
+
 	// Add to list (most recent first)
 	r.data.redis.LPush(ctx, key, r.serializeMessage(message))
-	
+
 	// Keep only last 100 messages
 	r.data.redis.LTrim(ctx, key, 0, 99)
-	
+
 	// Set expiration
 	r.data.redis.Expire(ctx, key, time.Hour)
 }
@@ -268,35 +270,35 @@ func (r *messageRepo) cacheMessages(ctx context.Context, roomID int64, messages 
 	if len(messages) == 0 {
 		return
 	}
-	
+
 	key := fmt.Sprintf("room:%d:messages", roomID)
-	
+
 	// Clear existing cache
 	r.data.redis.Del(ctx, key)
-	
+
 	// Add all messages (reverse order since LPush adds to front)
 	for i := len(messages) - 1; i >= 0; i-- {
 		r.data.redis.LPush(ctx, key, r.serializeMessage(messages[i]))
 	}
-	
+
 	r.data.redis.Expire(ctx, key, time.Hour)
 }
 
 func (r *messageRepo) getCachedMessages(ctx context.Context, roomID int64, limit int32) ([]*chatV1.Message, bool) {
 	key := fmt.Sprintf("room:%d:messages", roomID)
-	
+
 	cached := r.data.redis.LRange(ctx, key, 0, int64(limit-1)).Val()
 	if len(cached) == 0 {
 		return nil, false
 	}
-	
+
 	var messages []*chatV1.Message
 	for _, data := range cached {
 		if message := r.deserializeMessage(data); message != nil {
 			messages = append(messages, message)
 		}
 	}
-	
+
 	return messages, true
 }
 
@@ -304,7 +306,7 @@ func (r *messageRepo) updateUnreadCounts(ctx context.Context, message *chatV1.Me
 	// Get room members from Redis
 	membersKey := fmt.Sprintf("room:%d:members", message.RoomId)
 	members := r.data.redis.SMembers(ctx, membersKey).Val()
-	
+
 	// Update unread count for each member (except sender)
 	for _, memberIDStr := range members {
 		if memberIDStr != fmt.Sprintf("%d", message.UserId) {
@@ -326,7 +328,7 @@ func (r *messageRepo) serializeMessage(message *chatV1.Message) string {
 func (r *messageRepo) deserializeMessage(data string) *chatV1.Message {
 	// Simple parsing - in production, use proper serialization
 	message := &chatV1.Message{}
-	fmt.Sscanf(data, "%d|%d|%d|%s|%s|%s|%t|%d|%d",
+	_, _ = fmt.Sscanf(data, "%d|%d|%d|%s|%s|%s|%t|%d|%d",
 		&message.Id, &message.RoomId, &message.UserId, &message.Username,
 		&message.Content, &message.Type, &message.IsEdited,
 		&message.CreatedAt, &message.EditedAt)

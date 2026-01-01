@@ -3,7 +3,6 @@ package client
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
 	"google.golang.org/grpc"
@@ -23,12 +22,8 @@ type UserClient struct {
 
 // NewUserClient creates a new User Service gRPC client
 func NewUserClient(addr string, logger log.Logger) (*UserClient, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	conn, err := grpc.DialContext(ctx, addr,
+	conn, err := grpc.NewClient(addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
 	)
 	if err != nil {
 		return nil, err

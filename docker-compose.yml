@@ -146,8 +146,88 @@ services:
       - chat-network
     restart: unless-stopped
 
+  # Prometheus - collects metrics from all services
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: newchat-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    depends_on:
+      - user-service
+      - chat-service-1
+      - chat-service-2
+    networks:
+      - chat-network
+    restart: unless-stopped
+
+  # Grafana - visualize metrics as graphs/dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: newchat-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - chat-network
+    restart: unless-stopped
+
+  # MinIO - S3-compatible object storage for images
+  minio:
+    image: minio/minio:latest
+    container_name: newchat-minio
+    ports:
+      - "9100:9000"   # API
+      - "9101:9001"   # Console UI
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - chat-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Create default bucket on startup
+  minio-init:
+    image: minio/mc
+    container_name: newchat-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      mc mb myminio/chat-images --ignore-existing;
+      mc anonymous set public myminio/chat-images;
+      echo 'Bucket created';
+      "
+    networks:
+      - chat-network
+
 volumes:
   newchat_postgres_data:
+  prometheus_data:
+  grafana_data:
+  minio_data:
 
 networks:
   chat-network:

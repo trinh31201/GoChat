@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
-	userV1 "github.com/yourusername/chat-app/api/user/v1"
 	chatV1 "github.com/yourusername/chat-app/api/chat/v1"
+	userV1 "github.com/yourusername/chat-app/api/user/v1"
 	"github.com/yourusername/chat-app/internal/biz"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -351,7 +351,7 @@ func (a *ChatRepoAdapter) GetUnreadMessages(ctx context.Context, roomID, userID 
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Return empty slice for now - this method needs proper implementation
 	return []*biz.Message{}, nil
 }

@@ -10,8 +10,8 @@ import (
 )
 
 var (
-	ErrUserNotFound      = errors.New("user not found")
-	ErrUserAlreadyExists = errors.New("user already exists")
+	ErrUserNotFound       = errors.New("user not found")
+	ErrUserAlreadyExists  = errors.New("user already exists")
 	ErrInvalidCredentials = errors.New("invalid credentials")
 )
 
@@ -195,14 +195,14 @@ func (uc *UserUseCase) validateRegisterRequest(req *userV1.RegisterRequest) erro
 	if req.Username == "" || len(req.Username) < 3 || len(req.Username) > 50 {
 		return errors.New("username must be between 3 and 50 characters")
 	}
-	
+
 	if req.Email == "" || len(req.Email) > 100 {
 		return errors.New("invalid email")
 	}
-	
+
 	if req.Password == "" || len(req.Password) < 6 {
 		return errors.New("password must be at least 6 characters")
 	}
-	
+
 	return nil
 }

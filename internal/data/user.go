@@ -13,7 +13,7 @@ import (
 // UserRepo defines the interface for user data operations
 type UserRepo interface {
 	CreateUser(ctx context.Context, user *userV1.User, password string) (*userV1.User, error)
-	GetUserByEmail(ctx context.Context, email string) (*userV1.User, string, error) // returns user and password hash
+	GetUserByEmail(ctx context.Context, email string) (*userV1.User, string, error)       // returns user and password hash
 	GetUserByUsername(ctx context.Context, username string) (*userV1.User, string, error) // returns user and password hash
 	GetUserByID(ctx context.Context, id int64) (*userV1.User, error)
 	UpdateUserStatus(ctx context.Context, userID int64, status string) error
@@ -48,8 +48,7 @@ func (r *userRepo) CreateUser(ctx context.Context, user *userV1.User, password s
 	user.CreatedAt = now.Unix()
 
 	var createdAt time.Time
-	var err error
-	err = r.data.db.QueryRowContext(ctx, query,
+	err := r.data.db.QueryRowContext(ctx, query,
 		user.Username,
 		user.Email,
 		string(hashedPassword),
@@ -177,7 +176,7 @@ func (r *userRepo) GetUserByID(ctx context.Context, id int64) (*userV1.User, err
 
 func (r *userRepo) UpdateUserStatus(ctx context.Context, userID int64, status string) error {
 	query := `UPDATE users SET status = $1, updated_at = $2 WHERE id = $3`
-	
+
 	result, err := r.data.db.ExecContext(ctx, query, status, time.Now(), userID)
 	if err != nil {
 		return fmt.Errorf("failed to update user status: %w", err)
@@ -200,7 +199,7 @@ func (r *userRepo) UpdateUserStatus(ctx context.Context, userID int64, status st
 
 func (r *userRepo) UpdateLastSeen(ctx context.Context, userID int64) error {
 	query := `UPDATE users SET last_seen = $1 WHERE id = $2`
-	
+
 	_, err := r.data.db.ExecContext(ctx, query, time.Now(), userID)
 	if err != nil {
 		return fmt.Errorf("failed to update last seen: %w", err)

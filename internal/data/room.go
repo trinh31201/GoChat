@@ -118,7 +118,7 @@ func (r *roomRepo) ListUserRooms(ctx context.Context, userID int64, limit, offse
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list user rooms: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var rooms []*chatV1.Room
 	for rows.Next() {
@@ -223,7 +223,7 @@ func (r *roomRepo) GetRoomMembers(ctx context.Context, roomID int64) ([]*chatV1.
 	if err != nil {
 		return nil, fmt.Errorf("failed to get room members: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var members []*chatV1.RoomMember
 	for rows.Next() {
@@ -250,7 +250,7 @@ func (r *roomRepo) GetRoomMembers(ctx context.Context, roomID int64) ([]*chatV1.
 func (r *roomRepo) IsUserInRoom(ctx context.Context, roomID, userID int64) (bool, error) {
 	// TODO: Add Redis caching later with proper synchronization
 	// For now, always use database for accuracy
-	
+
 	var exists bool
 	query := `SELECT EXISTS(SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2)`
 

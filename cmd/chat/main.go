@@ -61,7 +61,11 @@ func main() {
 	if err != nil {
 		logHelper.Fatalf("failed to connect to User Service at %s: %v", userServiceAddr, err)
 	}
-	defer userClient.Close()
+	defer func() {
+		if err := userClient.Close(); err != nil {
+			logHelper.Errorf("failed to close user client: %v", err)
+		}
+	}()
 	logHelper.Infof("connected to User Service at %s", userServiceAddr)
 
 	// ============ 2. CREATE COMPONENTS ============

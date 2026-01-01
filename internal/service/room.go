@@ -7,6 +7,7 @@ import (
 
 	chatV1 "github.com/yourusername/chat-app/api/chat/v1"
 	"github.com/yourusername/chat-app/internal/biz"
+	"github.com/yourusername/chat-app/internal/middleware"
 )
 
 // RoomService implements the room service
@@ -179,14 +180,14 @@ func (s *RoomService) LeaveRoom(ctx context.Context, req *chatV1.LeaveRoomReques
 // getUserIDFromContext extracts user ID from request context
 // This would be set by an authentication middleware
 func (s *RoomService) getUserIDFromContext(ctx context.Context) (int64, error) {
-	userID, ok := ctx.Value("user_id").(int64)
+	userID, ok := ctx.Value(middleware.UserIDKey).(int64)
 	if !ok {
 		return 0, biz.ErrUserNotFound
 	}
-	
+
 	if userID <= 0 {
 		return 0, biz.ErrUserNotFound
 	}
-	
+
 	return userID, nil
 }

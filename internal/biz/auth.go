@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
-	"golang.org/x/crypto/bcrypt"
 	"github.com/yourusername/chat-app/internal/conf"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // JWTTokenManager implements TokenManager interface

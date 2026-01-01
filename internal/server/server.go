@@ -8,6 +8,7 @@ import (
 	"github.com/go-kratos/kratos/v2/transport/grpc"
 	"github.com/go-kratos/kratos/v2/transport/http"
 	"github.com/google/wire"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 
 	chatV1 "github.com/yourusername/chat-app/api/chat/v1"
@@ -208,6 +209,9 @@ func NewHTTPServerWithUserClient(
 		w.Header().Set("Content-Type", "text/yaml")
 		netHttp.ServeFile(w, r, "./openapi.yaml")
 	})
+
+	// Prometheus metrics endpoint
+	srv.Handle("/metrics", promhttp.Handler())
 
 	// Root redirect
 	srv.HandleFunc("/", func(w netHttp.ResponseWriter, r *netHttp.Request) {

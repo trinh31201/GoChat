@@ -1,0 +1,27 @@
+global:
+  scrape_interval: 15s     # Collect metrics every 15 seconds
+  evaluation_interval: 15s # Evaluate rules every 15 seconds
+
+scrape_configs:
+  # User Service - handles login/register
+  - job_name: 'user-service'
+    static_configs:
+      - targets: ['user-service:8000']
+        labels:
+          service: 'user'
+
+  # Chat Service 1 - WebSocket connections, messages
+  - job_name: 'chat-service-1'
+    static_configs:
+      - targets: ['chat-service-1:8000']
+        labels:
+          service: 'chat'
+          instance_id: '1'
+
+  # Chat Service 2 - WebSocket connections, messages
+  - job_name: 'chat-service-2'
+    static_configs:
+      - targets: ['chat-service-2:8000']
+        labels:
+          service: 'chat'
+          instance_id: '2'

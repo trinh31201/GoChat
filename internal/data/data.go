@@ -6,8 +6,8 @@ import (
 
 	"github.com/go-kratos/kratos/v2/log"
 	"github.com/google/wire"
-	"github.com/redis/go-redis/v9"
 	_ "github.com/lib/pq" // PostgreSQL driver
+	"github.com/redis/go-redis/v9"
 	"github.com/yourusername/chat-app/internal/conf"
 )
 

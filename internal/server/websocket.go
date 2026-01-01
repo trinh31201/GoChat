@@ -15,6 +15,8 @@ import (
 
 	chatV1 "github.com/yourusername/chat-app/api/chat/v1"
 	"github.com/yourusername/chat-app/internal/client"
+	"github.com/yourusername/chat-app/internal/metrics"
+	"github.com/yourusername/chat-app/internal/middleware"
 	"github.com/yourusername/chat-app/internal/service"
 )
 
@@ -28,12 +30,14 @@ var upgrader = websocket.Upgrader{
 
 // Client represents a connected WebSocket client
 type Client struct {
-	ID       int64
-	Username string
-	Conn     *websocket.Conn
-	Send     chan []byte
-	Hub      *Hub
-	RoomID   int64
+	ID          int64
+	Username    string
+	Conn        *websocket.Conn
+	Send        chan []byte
+	Hub         *Hub
+	RoomID      int64
+	ConnectedAt time.Time // Track connection time
+	IP          string    // Client IP address
 }
 
 // RedisMessage represents a message published to Redis Pub/Sub
@@ -94,7 +98,7 @@ type Hub struct {
 // WebSocketMessage represents messages between client and server
 type WebSocketMessage struct {
 	Type    string          `json:"type"`
-	RoomID  int64          `json:"room_id,omitempty"`
+	RoomID  int64           `json:"room_id,omitempty"`
 	Content string          `json:"content,omitempty"`
 	Token   string          `json:"token,omitempty"`
 	Data    json.RawMessage `json:"data,omitempty"`
@@ -151,10 +155,11 @@ func (h *Hub) Run() {
 			}
 			h.rooms[client.RoomID][client] = true
 			clientCount := len(h.rooms[client.RoomID])
+			metrics.IncWebSocketConnection()
 			h.mu.Unlock()
-			
+
 			h.log.Infof("Client %s joined room %d (total clients in room: %d)", client.Username, client.RoomID, clientCount)
-			
+
 			// Send join notification to room (direct broadcast)
 			joinMsg := map[string]interface{}{
 				"type":     "user_joined",
@@ -163,7 +168,7 @@ func (h *Hub) Run() {
 				"room_id":  client.RoomID,
 			}
 			msgBytes, _ := json.Marshal(joinMsg)
-			
+
 			// Broadcast directly to all clients in room
 			go func(roomClients map[*Client]bool, message []byte) {
 				h.log.Infof("Broadcasting user_joined to %d clients", len(roomClients))
@@ -177,7 +182,7 @@ func (h *Hub) Run() {
 					}(roomClient)
 				}
 			}(h.rooms[client.RoomID], msgBytes)
-			
+
 		case client := <-h.unregister:
 			h.mu.Lock()
 			var remainingClients map[*Client]bool
@@ -185,6 +190,7 @@ func (h *Hub) Run() {
 				if _, ok := clients[client]; ok {
 					delete(clients, client)
 					close(client.Send)
+					metrics.DecWebSocketConnection()
 					if len(clients) == 0 {
 						delete(h.rooms, client.RoomID)
 					} else {
@@ -197,9 +203,9 @@ func (h *Hub) Run() {
 				}
 			}
 			h.mu.Unlock()
-			
+
 			h.log.Infof("Client %s left room %d", client.Username, client.RoomID)
-			
+
 			// Send leave notification to remaining clients (direct broadcast)
 			if len(remainingClients) > 0 {
 				leaveMsg := map[string]interface{}{
@@ -209,7 +215,7 @@ func (h *Hub) Run() {
 					"room_id":  client.RoomID,
 				}
 				msgBytes, _ := json.Marshal(leaveMsg)
-				
+
 				// Broadcast directly to remaining clients
 				go func(clients map[*Client]bool, message []byte) {
 					h.log.Infof("Broadcasting user_left to %d remaining clients", len(clients))
@@ -255,17 +261,32 @@ func HandleWebSocket(hub *Hub, jwtSecret string) http.HandlerFunc {
 // Uses userClient to call User Service for authentication
 func HandleWebSocketWithUserClient(hub *Hub, userClient *client.UserClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Get client IP
+		clientIP := r.Header.Get("X-Real-IP")
+		if clientIP == "" {
+			clientIP = r.Header.Get("X-Forwarded-For")
+		}
+		if clientIP == "" {
+			clientIP = r.RemoteAddr
+		}
+
+		hub.log.Infow("WebSocket connection attempt", "ip", clientIP)
+
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			hub.log.Errorf("WebSocket upgrade failed: %v", err)
+			hub.log.Errorw("WebSocket upgrade failed", "ip", clientIP, "error", err)
 			return
 		}
 
 		client := &Client{
-			Conn: conn,
-			Send: make(chan []byte, 256),
-			Hub:  hub,
+			Conn:        conn,
+			Send:        make(chan []byte, 256),
+			Hub:         hub,
+			ConnectedAt: time.Now(),
+			IP:          clientIP,
 		}
+
+		hub.log.Infow("WebSocket connected", "ip", clientIP)
 
 		go client.writePump()
 		go client.readPumpWithUserClient(userClient)
@@ -275,15 +296,25 @@ func HandleWebSocketWithUserClient(hub *Hub, userClient *client.UserClient) http
 // readPumpWithUserClient handles incoming messages using User Service for auth
 func (c *Client) readPumpWithUserClient(userClient *client.UserClient) {
 	defer func() {
+		// Calculate session duration
+		duration := time.Since(c.ConnectedAt)
+		c.Hub.log.Infow("WebSocket disconnected",
+			"user_id", c.ID,
+			"username", c.Username,
+			"room_id", c.RoomID,
+			"ip", c.IP,
+			"duration_seconds", duration.Seconds(),
+		)
+
 		if c.ID != 0 && c.RoomID != 0 {
 			c.Hub.unregister <- c
 		}
-		c.Conn.Close()
+		_ = c.Conn.Close()
 	}()
 
-	c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	_ = c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	c.Conn.SetPongHandler(func(string) error {
-		c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		_ = c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 		return nil
 	})
 
@@ -361,7 +392,12 @@ func (c *Client) authenticateWithUserClient(tokenString string, userClient *clie
 	c.ID = userID
 	c.Username = username
 
-	c.Hub.log.Infof("User authenticated via User Service: id=%d, username=%s", c.ID, c.Username)
+	c.Hub.log.Infow("User authenticated",
+		"user_id", c.ID,
+		"username", c.Username,
+		"ip", c.IP,
+		"method", "user_service",
+	)
 	return nil
 }
 
@@ -371,15 +407,15 @@ func (c *Client) readPump(jwtSecret string) {
 		if c.ID != 0 && c.RoomID != 0 {
 			c.Hub.unregister <- c
 		}
-		c.Conn.Close()
+		_ = c.Conn.Close()
 	}()
-	
-	c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+
+	_ = c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	c.Conn.SetPongHandler(func(string) error {
-		c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		_ = c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 		return nil
 	})
-	
+
 	for {
 		var msg WebSocketMessage
 		err := c.Conn.ReadJSON(&msg)
@@ -389,7 +425,7 @@ func (c *Client) readPump(jwtSecret string) {
 			}
 			break
 		}
-		
+
 		switch msg.Type {
 		case "auth":
 			// Authenticate the client
@@ -398,31 +434,31 @@ func (c *Client) readPump(jwtSecret string) {
 				return
 			}
 			c.sendSuccess("Authenticated successfully")
-			
+
 		case "join_room":
 			// Join a room
 			if c.ID == 0 {
 				c.sendError("Please authenticate first")
 				continue
 			}
-			
+
 			if err := c.joinRoom(msg.RoomID); err != nil {
 				c.sendError(fmt.Sprintf("Failed to join room: %v", err))
 				continue
 			}
-			
+
 		case "send_message":
 			// Send a message to the room
 			if c.ID == 0 || c.RoomID == 0 {
 				c.sendError("Please authenticate and join a room first")
 				continue
 			}
-			
+
 			if err := c.sendMessage(msg.Content); err != nil {
 				c.sendError(fmt.Sprintf("Failed to send message: %v", err))
 				continue
 			}
-			
+
 		case "leave_room":
 			// Leave the current room
 			if c.RoomID != 0 {
@@ -430,7 +466,7 @@ func (c *Client) readPump(jwtSecret string) {
 				c.RoomID = 0
 				c.sendSuccess("Left room")
 			}
-			
+
 		case "ping":
 			// Respond to ping
 			c.safeSend([]byte(`{"type":"pong"}`))
@@ -443,22 +479,22 @@ func (c *Client) writePump() {
 	ticker := time.NewTicker(54 * time.Second)
 	defer func() {
 		ticker.Stop()
-		c.Conn.Close()
+		_ = c.Conn.Close()
 	}()
-	
+
 	for {
 		select {
 		case message, ok := <-c.Send:
-			c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			_ = c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if !ok {
-				c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+				_ = c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			
-			c.Conn.WriteMessage(websocket.TextMessage, message)
-			
+
+			_ = c.Conn.WriteMessage(websocket.TextMessage, message)
+
 		case <-ticker.C:
-			c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			_ = c.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
@@ -471,9 +507,7 @@ func (c *Client) authenticate(tokenString string, jwtSecret string) error {
 	if tokenString == "" {
 		return fmt.Errorf("missing token")
 	}
-	
-	
-	
+
 	// Parse JWT token
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
@@ -481,11 +515,11 @@ func (c *Client) authenticate(tokenString string, jwtSecret string) error {
 		}
 		return []byte(jwtSecret), nil
 	})
-	
+
 	if err != nil || !token.Valid {
 		return fmt.Errorf("invalid token")
 	}
-	
+
 	// Extract user info from token
 	if claims, ok := token.Claims.(jwt.MapClaims); ok {
 		if userID, ok := claims["user_id"].(float64); ok {
@@ -495,30 +529,30 @@ func (c *Client) authenticate(tokenString string, jwtSecret string) error {
 			c.Username = username
 		}
 	}
-	
+
 	if c.ID == 0 || c.Username == "" {
 		return fmt.Errorf("invalid token claims")
 	}
-	
+
 	return nil
 }
 
 // joinRoom adds the client to a room
 func (c *Client) joinRoom(roomID int64) error {
 	c.Hub.log.Infof("ENTER joinRoom: user_id=%d, username=%s, room_id=%d", c.ID, c.Username, roomID)
-	
+
 	if roomID <= 0 {
 		c.Hub.log.Errorf("joinRoom FAILED: invalid room ID %d for user_id=%d", roomID, c.ID)
 		return fmt.Errorf("invalid room ID")
 	}
-	
+
 	// Debug: Log the user ID being used
 	c.Hub.log.Infof("WebSocket joinRoom: user_id=%d trying to join room_id=%d", c.ID, roomID)
-	
+
 	// Check if user is a member of the room using the service
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, "user_id", c.ID)
-	
+	ctx = context.WithValue(ctx, middleware.UserIDKey, c.ID)
+
 	// Verify room access (the service will check membership)
 	room, err := c.Hub.roomService.GetRoom(ctx, &chatV1.GetRoomRequest{
 		Id: roomID,
@@ -527,17 +561,17 @@ func (c *Client) joinRoom(roomID int64) error {
 		c.Hub.log.Errorf("WebSocket joinRoom failed: user_id=%d, room_id=%d, error=%v", c.ID, roomID, err)
 		return fmt.Errorf("cannot access room: %v", err)
 	}
-	
+
 	// Leave current room if in one
 	if c.RoomID != 0 {
 		c.Hub.unregister <- c
 	}
-	
+
 	// Join new room
 	c.RoomID = roomID
 	c.Hub.log.Infof("Sending client to register channel: user_id=%d, room_id=%d", c.ID, roomID)
 	c.Hub.register <- c
-	
+
 	// Send room info to client
 	roomInfo := map[string]interface{}{
 		"type":    "room_joined",
@@ -546,7 +580,7 @@ func (c *Client) joinRoom(roomID int64) error {
 	}
 	msgBytes, _ := json.Marshal(roomInfo)
 	c.safeSend(msgBytes)
-	
+
 	c.Hub.log.Infof("EXIT joinRoom: user_id=%d successfully joined room_id=%d", c.ID, roomID)
 	return nil
 }
@@ -555,7 +589,7 @@ func (c *Client) joinRoom(roomID int64) error {
 func (h *Hub) GetRoomClients(roomID int64) map[*Client]bool {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	
+
 	// Return copy to avoid race conditions
 	clients := make(map[*Client]bool)
 	if roomClients, exists := h.rooms[roomID]; exists {
@@ -563,35 +597,47 @@ func (h *Hub) GetRoomClients(roomID int64) map[*Client]bool {
 			clients[client] = true
 		}
 	}
-	
+
 	h.log.Infof("GetRoomClients: room %d has %d clients", roomID, len(clients))
 	return clients
 }
 
 // sendMessage sends a message to the room
 func (c *Client) sendMessage(content string) error {
+	startTime := time.Now()
+
 	if content == "" {
 		return fmt.Errorf("empty message")
 	}
-	
+
 	// Use the chat service to send the message
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, "user_id", c.ID)
-	ctx = context.WithValue(ctx, "username", c.Username)
-	
+	ctx = context.WithValue(ctx, middleware.UserIDKey, c.ID)
+	ctx = context.WithValue(ctx, middleware.UsernameKey, c.Username)
+
 	msg, err := c.Hub.chatService.SendMessage(ctx, &chatV1.SendMessageRequest{
 		RoomId:  c.RoomID,
 		Content: content,
 		Type:    "text",
 	})
 	if err != nil {
-		c.Hub.log.Errorf("ChatService.SendMessage failed: %v", err)
+		c.Hub.log.Errorw("Failed to send message",
+			"user_id", c.ID,
+			"room_id", c.RoomID,
+			"error", err,
+			"duration_ms", time.Since(startTime).Milliseconds(),
+		)
 		return err
 	}
-	
-	// Debug: Log what we received from chat service
-	c.Hub.log.Infof("Message created: id=%d, room_id=%d, user_id=%d, username=%s",
-		msg.Id, msg.RoomId, msg.UserId, msg.Username)
+
+	c.Hub.log.Infow("Message sent",
+		"message_id", msg.Id,
+		"user_id", c.ID,
+		"username", c.Username,
+		"room_id", c.RoomID,
+		"content_length", len(content),
+		"duration_ms", time.Since(startTime).Milliseconds(),
+	)
 
 	// Publish to Redis instead of local broadcast
 	redisMsg := RedisMessage{
@@ -612,6 +658,7 @@ func (c *Client) sendMessage(content string) error {
 	}
 
 	c.Hub.log.Infof("Published to Redis channel: %s", channel)
+	metrics.RecordMessageSent("public") // Track message sent
 	return nil
 }
 
@@ -639,7 +686,7 @@ func (c *Client) sendSuccess(message string) {
 func (h *Hub) subscribeToRedis() {
 	ctx := context.Background()
 	pubsub := h.redisClient.PSubscribe(ctx, "room:*")
-	defer pubsub.Close()
+	defer func() { _ = pubsub.Close() }()
 
 	h.log.Info("Redis Pub/Sub subscriber started - listening to room:*")
 

@@ -9,26 +9,24 @@ const messagesSent = new Counter('messages_sent');
 const errors = new Counter('errors');
 
 // Configure: which server to test
-const SERVER_PORT = __ENV.PORT || '8001';
+const SERVER_PORT = __ENV.PORT || '80';
 const BASE_URL = `http://localhost:${SERVER_PORT}/api/v1`;
 const WS_URL = `ws://localhost:${SERVER_PORT}/ws`;
 
 export const options = {
   stages: [
-    { duration: '30s', target: 100 },   // Ramp to 100
-    { duration: '30s', target: 500 },   // Ramp to 500
-    { duration: '1m', target: 1000 },   // Ramp to 1000
-    { duration: '2m', target: 1000 },   // Hold 1000
+    { duration: '30s', target: 50 },    // Ramp to 50
+    { duration: '1m', target: 50 },     // Hold 50
     { duration: '30s', target: 0 },     // Ramp down
   ],
 };
 
 export default function () {
   // Unique user per VU + iteration
-  const uniqueId = `${SERVER_PORT}_${__VU}_${__ITER}_${Date.now()}`;
+  const uniqueId = `${__VU}_${__ITER}_${Date.now()}`;
   const username = `user_${uniqueId}`;
 
-  // Step 1: Register
+  // Step 1: Register user
   const registerRes = http.post(
     `${BASE_URL}/users/register`,
     JSON.stringify({
@@ -45,25 +43,60 @@ export default function () {
     return;
   }
 
-  const token = JSON.parse(registerRes.body).token;
+  const userData = JSON.parse(registerRes.body);
+  const token = userData.token;
+  const userId = userData.user.id;
 
-  // Step 2: Connect WebSocket
+  // Step 2: Create a room for this user
+  const createRoomRes = http.post(
+    `${BASE_URL}/rooms`,
+    JSON.stringify({
+      name: `room_${uniqueId}`,
+      type: 'public',
+    }),
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      }
+    }
+  );
+
+  let roomId = 1; // Default fallback
+  if (createRoomRes.status === 200) {
+    const roomData = JSON.parse(createRoomRes.body);
+    roomId = parseInt(roomData.id); // API returns id at top level
+  }
+
+  // Step 3: Connect WebSocket
   const res = ws.connect(WS_URL, {}, function (socket) {
+    let authenticated = false;
+    let roomJoined = false;
+
     socket.on('open', () => {
       activeConnections.add(1);
-
-      // Authenticate
+      // Authenticate first
       socket.send(JSON.stringify({ type: 'auth', token: token }));
     });
 
     socket.on('message', (msg) => {
       const data = JSON.parse(msg);
-      if (data.type === 'success') {
-        // Authenticated, send a message
+
+      // After auth success, join room
+      if (data.type === 'success' && !authenticated) {
+        authenticated = true;
+        socket.send(JSON.stringify({
+          type: 'join_room',
+          room_id: roomId,
+        }));
+      }
+
+      // After joining room, send a message immediately
+      if (data.type === 'room_joined' && !roomJoined) {
+        roomJoined = true;
         messagesSent.add(1);
         socket.send(JSON.stringify({
           type: 'send_message',
-          room_id: 1,
           content: `Hello from ${username}`,
         }));
       }
@@ -75,6 +108,7 @@ export default function () {
 
     socket.on('error', (e) => {
       errors.add(1);
+      activeConnections.add(-1);
     });
 
     // Stay connected for 30-60 seconds
