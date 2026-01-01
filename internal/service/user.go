@@ -97,3 +97,40 @@ func (s *UserService) UpdateStatus(ctx context.Context, req *userV1.UpdateStatus
 		Status:  req.Status,
 	}, nil
 }
+
+// ValidateToken validates JWT token (for service-to-service calls)
+func (s *UserService) ValidateToken(ctx context.Context, req *userV1.ValidateTokenRequest) (*userV1.ValidateTokenResponse, error) {
+	userID, username, err := s.uc.ValidateToken(ctx, req.Token)
+	if err != nil {
+		return &userV1.ValidateTokenResponse{Valid: false}, nil
+	}
+
+	return &userV1.ValidateTokenResponse{
+		Valid:    true,
+		UserId:   userID,
+		Username: username,
+	}, nil
+}
+
+// GetUsersByIds returns multiple users by their IDs
+func (s *UserService) GetUsersByIds(ctx context.Context, req *userV1.GetUsersByIdsRequest) (*userV1.GetUsersByIdsResponse, error) {
+	users, err := s.uc.GetUsersByIds(ctx, req.Ids)
+	if err != nil {
+		return nil, err
+	}
+
+	var pbUsers []*userV1.User
+	for _, user := range users {
+		pbUsers = append(pbUsers, &userV1.User{
+			Id:        user.ID,
+			Username:  user.Username,
+			Email:     user.Email,
+			AvatarUrl: user.AvatarURL,
+			Status:    user.Status,
+			LastSeen:  user.LastSeen.Unix(),
+			CreatedAt: user.CreatedAt.Unix(),
+		})
+	}
+
+	return &userV1.GetUsersByIdsResponse{Users: pbUsers}, nil
+}

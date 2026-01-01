@@ -12,6 +12,7 @@ import (
 
 	chatV1 "github.com/yourusername/chat-app/api/chat/v1"
 	userV1 "github.com/yourusername/chat-app/api/user/v1"
+	"github.com/yourusername/chat-app/internal/client"
 	"github.com/yourusername/chat-app/internal/conf"
 	"github.com/yourusername/chat-app/internal/middleware"
 	"github.com/yourusername/chat-app/internal/service"
@@ -137,6 +138,78 @@ func NewHTTPServer(
 	})
 
 	// Redirect root to login page
+	srv.HandleFunc("/", func(w netHttp.ResponseWriter, r *netHttp.Request) {
+		if r.URL.Path == "/" {
+			netHttp.Redirect(w, r, "/web/login.html", netHttp.StatusTemporaryRedirect)
+			return
+		}
+		netHttp.NotFound(w, r)
+	})
+
+	return srv
+}
+
+// NewHTTPServerWithUserClient creates HTTP server for Chat Service (microservices mode)
+// Uses gRPC client to User Service for authentication instead of local JWT validation
+func NewHTTPServerWithUserClient(
+	c *conf.Server,
+	roomService *service.RoomService,
+	chatService *service.ChatService,
+	redisClient *redis.Client,
+	userClient *client.UserClient,
+	logger log.Logger,
+) *http.Server {
+	var opts = []http.ServerOption{
+		http.Middleware(
+			recovery.Recovery(),
+			middleware.JWTAuthWithUserClient(userClient),
+		),
+		http.Filter(func(next netHttp.Handler) netHttp.Handler {
+			return netHttp.HandlerFunc(func(w netHttp.ResponseWriter, r *netHttp.Request) {
+				// CORS headers
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+				w.Header().Set("Access-Control-Max-Age", "86400")
+
+				if r.Method == "OPTIONS" {
+					w.WriteHeader(netHttp.StatusNoContent)
+					return
+				}
+
+				next.ServeHTTP(w, r)
+			})
+		}),
+	}
+
+	if c.Http.Addr != "" {
+		opts = append(opts, http.Address(c.Http.Addr))
+	}
+
+	srv := http.NewServer(opts...)
+
+	// Create WebSocket hub with User Client (calls User Service for auth)
+	hub := NewHubWithUserClient(chatService, roomService, redisClient, userClient, logger)
+	go hub.Run()
+
+	// Register HTTP handlers (Chat Service only - no UserService)
+	chatV1.RegisterRoomServiceHTTPServer(srv, roomService)
+	chatV1.RegisterChatServiceHTTPServer(srv, chatService)
+
+	// WebSocket endpoint - uses userClient for auth
+	srv.HandleFunc("/ws", HandleWebSocketWithUserClient(hub, userClient))
+
+	// Static files
+	webDir := netHttp.Dir("./web")
+	srv.HandlePrefix("/web/", netHttp.StripPrefix("/web/", netHttp.FileServer(webDir)))
+
+	// Serve OpenAPI spec
+	srv.HandleFunc("/openapi.yaml", func(w netHttp.ResponseWriter, r *netHttp.Request) {
+		w.Header().Set("Content-Type", "text/yaml")
+		netHttp.ServeFile(w, r, "./openapi.yaml")
+	})
+
+	// Root redirect
 	srv.HandleFunc("/", func(w netHttp.ResponseWriter, r *netHttp.Request) {
 		if r.URL.Path == "/" {
 			netHttp.Redirect(w, r, "/web/login.html", netHttp.StatusTemporaryRedirect)

@@ -2,25 +2,27 @@ package main
 
 import (
 	"flag"
+	netHttp "net/http"
 	"os"
+	"time"
 
 	"github.com/go-kratos/kratos/v2"
 	"github.com/go-kratos/kratos/v2/log"
 	"github.com/go-kratos/kratos/v2/middleware/recovery"
 	"github.com/go-kratos/kratos/v2/transport/grpc"
+	"github.com/go-kratos/kratos/v2/transport/http"
 	"github.com/joho/godotenv"
+	"google.golang.org/protobuf/types/known/durationpb"
 
-	chatV1 "github.com/yourusername/chat-app/api/chat/v1"
+	userV1 "github.com/yourusername/chat-app/api/user/v1"
 	"github.com/yourusername/chat-app/internal/biz"
-	"github.com/yourusername/chat-app/internal/client"
 	"github.com/yourusername/chat-app/internal/conf"
 	"github.com/yourusername/chat-app/internal/data"
-	"github.com/yourusername/chat-app/internal/server"
 	"github.com/yourusername/chat-app/internal/service"
 )
 
 var (
-	Name     = "chat-service"
+	Name     = "user-service"
 	Version  = "v1.0.0"
 	httpAddr = ":8000"
 	grpcAddr = ":9000"
@@ -40,10 +42,9 @@ func main() {
 
 	// Load config from environment
 	dataConf := loadDataConfig()
-	serverConf := loadServerConfig()
+	authConf := loadAuthConfig()
 
 	// ============ 1. CONNECT ============
-	// Connect to Database & Redis
 	dataData, cleanup, err := data.NewData(dataConf, logger)
 	if err != nil {
 		logHelper.Fatalf("failed to create data: %v", err)
@@ -51,48 +52,39 @@ func main() {
 	defer cleanup()
 	logHelper.Info("connected to database and redis")
 
-	// Connect to User Service via gRPC
-	userServiceAddr := os.Getenv("USER_SERVICE_ADDR")
-	if userServiceAddr == "" {
-		userServiceAddr = "localhost:9000" // Default for local dev
-	}
-
-	userClient, err := client.NewUserClient(userServiceAddr, logger)
-	if err != nil {
-		logHelper.Fatalf("failed to connect to User Service at %s: %v", userServiceAddr, err)
-	}
-	defer userClient.Close()
-	logHelper.Infof("connected to User Service at %s", userServiceAddr)
-
 	// ============ 2. CREATE COMPONENTS ============
 	// Data layer
-	roomRepo := data.NewRoomRepo(dataData, logger)
-	bizRoomRepo := data.NewRoomRepoAdapter(roomRepo, logger)
-	messageRepo := data.NewMessageRepo(dataData, logger)
-	chatRepo := data.NewChatRepoAdapter(messageRepo, logger)
 	userRepo := data.NewUserRepo(dataData, logger)
 	bizUserRepo := data.NewUserRepoAdapter(userRepo, logger)
 
 	// Biz layer
-	roomUseCase := biz.NewRoomUseCase(bizRoomRepo, bizUserRepo, logger)
-	chatUseCase := biz.NewChatUseCase(chatRepo, bizRoomRepo, bizUserRepo, logger)
+	jwtManager := biz.NewJWTTokenManagerFromConfig(authConf)
+	passwordHasher := biz.NewBcryptPasswordHasher()
+	userUseCase := biz.NewUserUseCase(bizUserRepo, jwtManager, passwordHasher, logger)
 
 	// Service layer
-	roomService := service.NewRoomService(roomUseCase, logger)
-	chatService := service.NewChatService(chatUseCase, logger)
+	userService := service.NewUserService(userUseCase, logger)
 
 	// ============ 3. CREATE SERVERS ============
-	// gRPC server
+	// gRPC server (for internal service-to-service calls)
 	grpcServer := grpc.NewServer(
 		grpc.Address(grpcAddr),
 		grpc.Middleware(recovery.Recovery()),
 	)
-	chatV1.RegisterRoomServiceServer(grpcServer, roomService)
-	chatV1.RegisterChatServiceServer(grpcServer, chatService)
+	userV1.RegisterUserServiceServer(grpcServer, userService)
 
-	// HTTP server with WebSocket
-	redisClient := data.NewRedisClient(dataData)
-	httpServer := server.NewHTTPServerWithUserClient(serverConf, roomService, chatService, redisClient, userClient, logger)
+	// HTTP server (for external REST API)
+	httpServer := http.NewServer(
+		http.Address(httpAddr),
+		http.Middleware(recovery.Recovery()),
+	)
+	userV1.RegisterUserServiceHTTPServer(httpServer, userService)
+
+	// Health endpoint for Docker health check
+	httpServer.HandleFunc("/health", func(w netHttp.ResponseWriter, r *netHttp.Request) {
+		w.WriteHeader(netHttp.StatusOK)
+		w.Write([]byte("ok"))
+	})
 
 	// ============ 4. START ============
 	app := kratos.New(
@@ -103,7 +95,7 @@ func main() {
 		kratos.Server(grpcServer, httpServer),
 	)
 
-	logHelper.Infof("Chat Service starting - HTTP %s, gRPC %s", httpAddr, grpcAddr)
+	logHelper.Infof("User Service starting - HTTP %s, gRPC %s", httpAddr, grpcAddr)
 
 	if err := app.Run(); err != nil {
 		logHelper.Fatalf("failed to run app: %v", err)
@@ -132,13 +124,14 @@ func loadDataConfig() *conf.Data {
 	}
 }
 
-func loadServerConfig() *conf.Server {
-	return &conf.Server{
-		Http: &conf.Server_HTTP{
-			Addr: httpAddr,
-		},
-		Grpc: &conf.Server_GRPC{
-			Addr: grpcAddr,
-		},
+func loadAuthConfig() *conf.Auth {
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		jwtSecret = "your-secret-key-change-in-production"
+	}
+
+	return &conf.Auth{
+		JwtSecret: jwtSecret,
+		JwtExpire: durationpb.New(24 * time.Hour), // 24 hours
 	}
 }

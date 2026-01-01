@@ -14,6 +14,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	chatV1 "github.com/yourusername/chat-app/api/chat/v1"
+	"github.com/yourusername/chat-app/internal/client"
 	"github.com/yourusername/chat-app/internal/service"
 )
 
@@ -85,6 +86,9 @@ type Hub struct {
 
 	// Redis Pub/Sub
 	redisClient *redis.Client
+
+	// User Client for microservices mode (calls User Service for auth)
+	userClient *client.UserClient
 }
 
 // WebSocketMessage represents messages between client and server
@@ -96,7 +100,7 @@ type WebSocketMessage struct {
 	Data    json.RawMessage `json:"data,omitempty"`
 }
 
-// NewHub creates a new WebSocket hub
+// NewHub creates a new WebSocket hub (monolith mode)
 func NewHub(chatService *service.ChatService, roomService *service.RoomService, redisClient *redis.Client, logger log.Logger) *Hub {
 	hub := &Hub{
 		rooms:       make(map[int64]map[*Client]bool),
@@ -105,6 +109,26 @@ func NewHub(chatService *service.ChatService, roomService *service.RoomService, 
 		chatService: chatService,
 		roomService: roomService,
 		redisClient: redisClient,
+		log:         log.NewHelper(logger),
+	}
+
+	// Start Redis subscriber
+	go hub.subscribeToRedis()
+
+	return hub
+}
+
+// NewHubWithUserClient creates a new WebSocket hub (microservices mode)
+// Uses userClient to call User Service for authentication
+func NewHubWithUserClient(chatService *service.ChatService, roomService *service.RoomService, redisClient *redis.Client, userClient *client.UserClient, logger log.Logger) *Hub {
+	hub := &Hub{
+		rooms:       make(map[int64]map[*Client]bool),
+		register:    make(chan *Client, 100),
+		unregister:  make(chan *Client, 100),
+		chatService: chatService,
+		roomService: roomService,
+		redisClient: redisClient,
+		userClient:  userClient,
 		log:         log.NewHelper(logger),
 	}
 
@@ -204,7 +228,7 @@ func (h *Hub) Run() {
 	}
 }
 
-// HandleWebSocket handles WebSocket connections
+// HandleWebSocket handles WebSocket connections (monolith mode - local JWT validation)
 func HandleWebSocket(hub *Hub, jwtSecret string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Upgrade HTTP connection to WebSocket
@@ -213,18 +237,132 @@ func HandleWebSocket(hub *Hub, jwtSecret string) http.HandlerFunc {
 			hub.log.Errorf("WebSocket upgrade failed: %v", err)
 			return
 		}
-		
+
 		// Create client
 		client := &Client{
 			Conn: conn,
 			Send: make(chan []byte, 256),
 			Hub:  hub,
 		}
-		
+
 		// Start client goroutines
 		go client.writePump()
 		go client.readPump(jwtSecret)
 	}
+}
+
+// HandleWebSocketWithUserClient handles WebSocket connections (microservices mode)
+// Uses userClient to call User Service for authentication
+func HandleWebSocketWithUserClient(hub *Hub, userClient *client.UserClient) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			hub.log.Errorf("WebSocket upgrade failed: %v", err)
+			return
+		}
+
+		client := &Client{
+			Conn: conn,
+			Send: make(chan []byte, 256),
+			Hub:  hub,
+		}
+
+		go client.writePump()
+		go client.readPumpWithUserClient(userClient)
+	}
+}
+
+// readPumpWithUserClient handles incoming messages using User Service for auth
+func (c *Client) readPumpWithUserClient(userClient *client.UserClient) {
+	defer func() {
+		if c.ID != 0 && c.RoomID != 0 {
+			c.Hub.unregister <- c
+		}
+		c.Conn.Close()
+	}()
+
+	c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	c.Conn.SetPongHandler(func(string) error {
+		c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		return nil
+	})
+
+	for {
+		var msg WebSocketMessage
+		err := c.Conn.ReadJSON(&msg)
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				c.Hub.log.Errorf("WebSocket error: %v", err)
+			}
+			break
+		}
+
+		switch msg.Type {
+		case "auth":
+			// Authenticate via User Service (gRPC call)
+			if err := c.authenticateWithUserClient(msg.Token, userClient); err != nil {
+				c.sendError("Authentication failed")
+				return
+			}
+			c.sendSuccess("Authenticated successfully")
+
+		case "join_room":
+			if c.ID == 0 {
+				c.sendError("Please authenticate first")
+				continue
+			}
+			if err := c.joinRoom(msg.RoomID); err != nil {
+				c.sendError(fmt.Sprintf("Failed to join room: %v", err))
+				continue
+			}
+
+		case "send_message":
+			if c.ID == 0 || c.RoomID == 0 {
+				c.sendError("Please authenticate and join a room first")
+				continue
+			}
+			if err := c.sendMessage(msg.Content); err != nil {
+				c.sendError(fmt.Sprintf("Failed to send message: %v", err))
+				continue
+			}
+
+		case "leave_room":
+			if c.RoomID != 0 {
+				c.Hub.unregister <- c
+				c.RoomID = 0
+				c.sendSuccess("Left room")
+			}
+
+		case "ping":
+			c.safeSend([]byte(`{"type":"pong"}`))
+		}
+	}
+}
+
+// authenticateWithUserClient validates token via User Service (gRPC call)
+func (c *Client) authenticateWithUserClient(tokenString string, userClient *client.UserClient) error {
+	if tokenString == "" {
+		return fmt.Errorf("missing token")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Call User Service to validate token
+	userID, username, err := userClient.ValidateToken(ctx, tokenString)
+	if err != nil {
+		return fmt.Errorf("token validation failed: %v", err)
+	}
+
+	if userID == 0 {
+		return fmt.Errorf("invalid token")
+	}
+
+	c.ID = userID
+	c.Username = username
+
+	c.Hub.log.Infof("User authenticated via User Service: id=%d, username=%s", c.ID, c.Username)
+	return nil
 }
 
 // readPump handles incoming messages from the client

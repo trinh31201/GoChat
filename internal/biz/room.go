@@ -93,11 +93,7 @@ func (uc *RoomUseCase) CreateRoom(ctx context.Context, userID int64, req *chatV1
 		return nil, err
 	}
 
-	// Add creator as admin
-	if err := uc.repo.JoinRoom(ctx, createdRoom.ID, userID, "admin"); err != nil {
-		uc.log.Errorf("Failed to add creator to room: %v", err)
-		return nil, err
-	}
+	// Note: Creator is automatically added as admin in repo.CreateRoom
 
 	uc.log.Infof("Room created successfully: id=%d, name=%s", createdRoom.ID, createdRoom.Name)
 	return createdRoom, nil

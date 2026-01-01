@@ -38,6 +38,12 @@ service UserService {
       body: "*"
     };
   }
+
+  // Validate JWT token (internal gRPC, no HTTP)
+  rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
+
+  // Get multiple users by IDs (for batch lookup)
+  rpc GetUsersByIds(GetUsersByIdsRequest) returns (GetUsersByIdsResponse);
 }
 
 // User model
@@ -84,4 +90,24 @@ message UpdateStatusRequest {
 message UpdateStatusResponse {
   bool success = 1;
   string status = 2;
+}
+
+// ValidateToken - for internal service-to-service auth
+message ValidateTokenRequest {
+  string token = 1;
+}
+
+message ValidateTokenResponse {
+  bool valid = 1;
+  int64 user_id = 2;
+  string username = 3;
+}
+
+// GetUsersByIds - batch lookup for efficiency
+message GetUsersByIdsRequest {
+  repeated int64 ids = 1;
+}
+
+message GetUsersByIdsResponse {
+  repeated User users = 1;
 }

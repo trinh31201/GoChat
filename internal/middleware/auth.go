@@ -8,6 +8,7 @@ import (
 	"github.com/go-kratos/kratos/v2/middleware"
 	"github.com/go-kratos/kratos/v2/transport"
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/yourusername/chat-app/internal/client"
 	"github.com/yourusername/chat-app/internal/conf"
 )
 
@@ -75,6 +76,41 @@ func JWTAuth(c *conf.Auth) middleware.Middleware {
 				ctx = context.WithValue(ctx, "email", claims.Email)
 			}
 			
+			return handler(ctx, req)
+		}
+	}
+}
+
+// JWTAuthWithUserClient creates JWT authentication middleware using User Service
+// This is used by Chat Service to validate tokens via gRPC call to User Service
+func JWTAuthWithUserClient(userClient *client.UserClient) middleware.Middleware {
+	return func(handler middleware.Handler) middleware.Handler {
+		return func(ctx context.Context, req interface{}) (interface{}, error) {
+			if tr, ok := transport.FromServerContext(ctx); ok {
+				// Extract token from Authorization header
+				var token string
+				if header := tr.RequestHeader(); header != nil {
+					auth := header.Get("Authorization")
+					if auth != "" && strings.HasPrefix(auth, "Bearer ") {
+						token = auth[7:] // Remove "Bearer " prefix
+					}
+				}
+
+				if token == "" {
+					return nil, fmt.Errorf("authentication required: missing token")
+				}
+
+				// Validate token via User Service gRPC call
+				userID, username, err := userClient.ValidateToken(ctx, token)
+				if err != nil {
+					return nil, fmt.Errorf("authentication failed: %v", err)
+				}
+
+				// Add user info to context
+				ctx = context.WithValue(ctx, "user_id", userID)
+				ctx = context.WithValue(ctx, "username", username)
+			}
+
 			return handler(ctx, req)
 		}
 	}

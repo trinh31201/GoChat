@@ -164,12 +164,30 @@ func (uc *UserUseCase) UpdateStatus(ctx context.Context, userID int64, status st
 		"offline": true,
 		"away":    true,
 	}
-	
+
 	if !validStatuses[status] {
 		return errors.New("invalid status")
 	}
 
 	return uc.repo.UpdateUserStatus(ctx, userID, status)
+}
+
+// ValidateToken validates JWT token and returns user info
+func (uc *UserUseCase) ValidateToken(ctx context.Context, token string) (int64, string, error) {
+	return uc.tokenManager.ValidateToken(token)
+}
+
+// GetUsersByIds returns multiple users by their IDs
+func (uc *UserUseCase) GetUsersByIds(ctx context.Context, ids []int64) ([]*User, error) {
+	var users []*User
+	for _, id := range ids {
+		user, err := uc.repo.GetUserByID(ctx, id)
+		if err != nil {
+			continue // Skip users not found
+		}
+		users = append(users, user)
+	}
+	return users, nil
 }
 
 // validateRegisterRequest validates registration input
