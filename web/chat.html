@@ -22,6 +22,11 @@
                 </div>
                 <button class="btn-logout" onclick="logout()" title="Logout">🚪</button>
             </div>
+            <!-- Join Room by ID -->
+            <div class="join-room-section">
+                <input type="number" id="joinRoomId" placeholder="Room ID" />
+                <button class="btn btn-small" onclick="joinRoomById()">Join</button>
+            </div>
             <div class="rooms-list" id="roomsList">
                 <div class="loading">Loading rooms...</div>
             </div>
@@ -43,7 +48,6 @@
                     <div class="room-info">
                         <h3 id="currentRoomName">Room Name</h3>
                         <span id="currentRoomType" class="room-type-badge">public</span>
-                        <span id="memberCount" class="member-count">0 members</span>
                     </div>
                     <button class="btn btn-danger btn-small" onclick="leaveRoom()">Leave Room</button>
                 </div>

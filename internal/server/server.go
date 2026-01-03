@@ -104,6 +104,8 @@ func NewHTTPServer(
 
 	srv := http.NewServer(opts...)
 
+	// CORS is handled by the middleware filter above
+
 	// Create and start WebSocket hub
 	hub := NewHub(chatService, roomService, redisClient, logger)
 	go hub.Run()
@@ -120,17 +122,6 @@ func NewHTTPServer(
 	webDir := netHttp.Dir("./web")
 	srv.HandlePrefix("/web/", netHttp.StripPrefix("/web/", netHttp.FileServer(webDir)))
 
-	// Handle CORS preflight requests for all API routes
-	srv.HandleFunc("/api/", func(w netHttp.ResponseWriter, r *netHttp.Request) {
-		if r.Method == "OPTIONS" {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
-			w.Header().Set("Access-Control-Max-Age", "86400")
-			w.WriteHeader(netHttp.StatusNoContent)
-			return
-		}
-	})
 
 	// Serve OpenAPI spec for Swagger UI
 	srv.HandleFunc("/openapi.yaml", func(w netHttp.ResponseWriter, r *netHttp.Request) {

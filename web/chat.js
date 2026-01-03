@@ -1,10 +1,15 @@
-// Configuration
-const API_URL = 'http://localhost:8001/api/v1';
-const WS_URL = 'ws://localhost:8001/ws';
+// Configuration - Dynamic URL for phone/deployment
+const API_HOST = window.location.hostname;
+const API_PORT = window.location.port;
+// If port is empty (default 80), don't add :port to URL
+const API_URL = API_PORT ? `http://${API_HOST}:${API_PORT}/api/v1` : `http://${API_HOST}/api/v1`;
+const WS_URL = API_PORT ? `ws://${API_HOST}:${API_PORT}/ws` : `ws://${API_HOST}/ws`;
 
 // Global State
 let ws = null;
+let wsAuthenticated = false;  // Track if WebSocket is authenticated
 let currentRoom = null;
+let pendingRoomJoin = null;   // Room to join after auth completes
 let rooms = [];
 let token = localStorage.getItem('token');
 let userId = localStorage.getItem('userId');
@@ -14,6 +19,29 @@ let username = localStorage.getItem('username');
 if (!token || !userId || !username) {
     window.location.href = '/web/login.html';
 }
+
+// Validate token matches userId by decoding JWT payload
+function validateTokenUserId() {
+    try {
+        // JWT format: header.payload.signature
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        const tokenUserId = String(payload.user_id);
+
+        // If token's user_id doesn't match localStorage userId, force re-login
+        if (tokenUserId !== String(userId)) {
+            console.warn('Token userId mismatch! Forcing re-login.');
+            localStorage.clear();
+            window.location.href = '/web/login.html';
+        }
+    } catch (e) {
+        console.error('Invalid token, forcing re-login');
+        localStorage.clear();
+        window.location.href = '/web/login.html';
+    }
+}
+
+// Run validation on page load
+validateTokenUserId();
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -52,6 +80,7 @@ function initializeWebSocket() {
 
     ws.onclose = () => {
         console.log('WebSocket disconnected');
+        wsAuthenticated = false;  // Reset auth state
         // Reconnect after 3 seconds
         setTimeout(initializeWebSocket, 3000);
     };
@@ -62,6 +91,18 @@ function handleWebSocketMessage(data) {
 
     switch (data.type) {
         case 'success':
+            console.log(data.message);
+            // Check if this is authentication success
+            if (data.message && data.message.includes('Authenticated')) {
+                wsAuthenticated = true;
+                // If there's a pending room to join, join it now
+                if (pendingRoomJoin) {
+                    joinRoomWS(pendingRoomJoin);
+                    pendingRoomJoin = null;
+                }
+            }
+            break;
+
         case 'error':
             console.log(data.message);
             break;
@@ -71,23 +112,21 @@ function handleWebSocketMessage(data) {
             break;
 
         case 'new_message':
-            if (currentRoom && data.room_id === currentRoom.id) {
+            // Use == for loose comparison (handles string vs number)
+            if (currentRoom && String(data.room_id) === String(currentRoom.id)) {
                 displayMessage(data);
             }
             break;
 
         case 'user_joined':
-            if (currentRoom && data.room_id === currentRoom.id) {
+            if (currentRoom && String(data.room_id) === String(currentRoom.id)) {
                 showSystemMessage(`${data.username} joined the room`);
-                // Update member count
-                updateMemberCount();
             }
             break;
 
         case 'user_left':
-            if (currentRoom && data.room_id === currentRoom.id) {
+            if (currentRoom && String(data.room_id) === String(currentRoom.id)) {
                 showSystemMessage(`${data.username} left the room`);
-                updateMemberCount();
             }
             break;
 
@@ -170,6 +209,17 @@ async function createRoom(name, description, type) {
     }
 }
 
+// Send join_room message via WebSocket
+function joinRoomWS(roomId) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        console.log('Sending join_room for room:', roomId);
+        ws.send(JSON.stringify({
+            type: 'join_room',
+            room_id: parseInt(roomId)  // Ensure it's a number
+        }));
+    }
+}
+
 // Open a room (user is already a member)
 async function openRoom(room) {
     currentRoom = room;
@@ -179,21 +229,72 @@ async function openRoom(room) {
     document.getElementById('chatScreen').style.display = 'flex';
     document.getElementById('currentRoomName').textContent = room.name;
     document.getElementById('currentRoomType').textContent = room.type;
-    updateMemberCount();
 
     // Load messages
     await loadMessages(room.id);
 
-    // Join via WebSocket
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-            type: 'join_room',
-            room_id: room.id
-        }));
+    // Join via WebSocket (wait for auth if not authenticated yet)
+    if (wsAuthenticated) {
+        joinRoomWS(room.id);
+    } else {
+        // Store room to join after auth completes
+        pendingRoomJoin = room.id;
+        console.log('Waiting for WebSocket auth before joining room');
     }
 
     // Update active room in sidebar
     updateActiveRoom(room.id);
+}
+
+// Join room by ID (from input field)
+async function joinRoomById() {
+    const roomIdInput = document.getElementById('joinRoomId');
+    const roomId = roomIdInput.value.trim();
+
+    if (!roomId) {
+        showAlert('Please enter a room ID', 'error');
+        return;
+    }
+
+    try {
+        // Try to join the room first (user may not have access to view room details yet)
+        const joinResponse = await apiCall(`/rooms/${roomId}/join`, {
+            method: 'POST',
+            body: JSON.stringify({
+                user_id: parseInt(userId),
+                room_id: parseInt(roomId)
+            })
+        });
+
+        if (!joinResponse.ok) {
+            const errorData = await joinResponse.json();
+            // If already a member, that's fine - just proceed to open the room
+            if (!errorData.message || !errorData.message.includes('already')) {
+                showAlert(errorData.message || 'Failed to join room', 'error');
+                return;
+            }
+        }
+
+        // Now fetch room details (user is now a member)
+        const roomResponse = await apiCall(`/rooms/${roomId}`);
+        if (!roomResponse.ok) {
+            showAlert('Failed to load room details', 'error');
+            return;
+        }
+        const room = await roomResponse.json();
+
+        // Clear input
+        roomIdInput.value = '';
+
+        // Reload rooms list and open the room
+        await loadRooms();
+        await openRoom(room);
+
+        showAlert('Joined room successfully!', 'success');
+    } catch (error) {
+        console.error('Error joining room:', error);
+        showAlert('Failed to join room', 'error');
+    }
 }
 
 async function joinRoom(room) {
@@ -203,7 +304,7 @@ async function joinRoom(room) {
             method: 'POST',
             body: JSON.stringify({
                 user_id: parseInt(userId),
-                room_id: room.id
+                room_id: parseInt(room.id)
             })
         });
 
@@ -317,7 +418,6 @@ function displayRooms() {
             <div class="room-item-name">${escapeHtml(room.name)}</div>
             <div class="room-item-meta">
                 <span class="room-type-badge">${room.type}</span>
-                <span>${room.member_count || 0} members</span>
             </div>
         </div>
     `).join('');
@@ -370,12 +470,6 @@ function scrollToBottom() {
     container.scrollTop = container.scrollHeight;
 }
 
-function updateMemberCount() {
-    if (currentRoom) {
-        // Could fetch updated room info from API
-        document.getElementById('memberCount').textContent = `${currentRoom.member_count || 0} members`;
-    }
-}
 
 // ==================== MODAL FUNCTIONS ====================
 function showCreateRoomModal() {

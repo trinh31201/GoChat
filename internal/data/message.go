@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -317,20 +318,21 @@ func (r *messageRepo) updateUnreadCounts(ctx context.Context, message *chatV1.Me
 	}
 }
 
-// Simple serialization helpers (in production, use protobuf or msgpack)
+// Serialization helpers using JSON for proper handling of special characters
 func (r *messageRepo) serializeMessage(message *chatV1.Message) string {
-	return fmt.Sprintf("%d|%d|%d|%s|%s|%s|%t|%d|%d",
-		message.Id, message.RoomId, message.UserId, message.Username,
-		message.Content, message.Type, message.IsEdited,
-		message.CreatedAt, message.EditedAt)
+	data, err := json.Marshal(message)
+	if err != nil {
+		r.log.Warnf("failed to serialize message: %v", err)
+		return ""
+	}
+	return string(data)
 }
 
 func (r *messageRepo) deserializeMessage(data string) *chatV1.Message {
-	// Simple parsing - in production, use proper serialization
 	message := &chatV1.Message{}
-	_, _ = fmt.Sscanf(data, "%d|%d|%d|%s|%s|%s|%t|%d|%d",
-		&message.Id, &message.RoomId, &message.UserId, &message.Username,
-		&message.Content, &message.Type, &message.IsEdited,
-		&message.CreatedAt, &message.EditedAt)
+	if err := json.Unmarshal([]byte(data), message); err != nil {
+		r.log.Warnf("failed to deserialize message: %v", err)
+		return nil
+	}
 	return message
 }

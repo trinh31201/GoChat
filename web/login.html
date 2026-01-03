@@ -64,7 +64,11 @@
     </div>
 
     <script>
-        const API_URL = 'http://localhost:8001/api/v1';
+        // Dynamic URL - works from phone and when deployed
+        const API_HOST = window.location.hostname;
+        const API_PORT = window.location.port;
+        // If port is empty (default 80), don't add :port to URL
+        const API_URL = API_PORT ? `http://${API_HOST}:${API_PORT}/api/v1` : `http://${API_HOST}/api/v1`;
 
         // Show/Hide Forms
         function showLogin() {
@@ -103,7 +107,10 @@
                 const data = await response.json();
 
                 if (response.ok) {
-                    // Store auth data
+                    // Clear old data first to prevent stale data issues
+                    localStorage.clear();
+
+                    // Store fresh auth data
                     localStorage.setItem('token', data.token);
                     localStorage.setItem('userId', data.user.id);
                     localStorage.setItem('username', data.user.username);
