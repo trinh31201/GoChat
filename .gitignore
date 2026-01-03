@@ -42,9 +42,13 @@ logs/
 bin/
 dist/
 build/
+chat
+chat-race
 
 # Dependencies
 vendor/
+node_modules/
+test/node_modules/
 
 # Test coverage
 coverage.out
