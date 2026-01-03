@@ -54,6 +54,10 @@ test/node_modules/
 coverage.out
 coverage.html
 
+# Test results
+*-results*.txt
+test/*-results*.txt
+
 # Temporary files
 tmp/
 temp/
