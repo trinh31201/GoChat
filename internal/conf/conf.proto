@@ -43,8 +43,17 @@ message Data {
     google.protobuf.Duration read_timeout = 4;
     google.protobuf.Duration write_timeout = 5;
   }
+  message Minio {
+    string endpoint = 1;
+    string access_key = 2;
+    string secret_key = 3;
+    string bucket_name = 4;
+    bool use_ssl = 5;
+    string public_url = 6;
+  }
   Database database = 1;
   Redis redis = 2;
+  Minio minio = 3;
 }
 
 message Auth {

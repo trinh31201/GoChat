@@ -87,6 +87,11 @@ message Message {
   bool is_edited = 7;
   int64 created_at = 8; // Unix timestamp
   int64 edited_at = 9;
+  // File attachment fields
+  string file_url = 10;   // URL to the file in storage
+  string file_name = 11;  // Original filename
+  int64 file_size = 12;   // File size in bytes
+  string mime_type = 13;  // MIME type (e.g., image/png, application/pdf)
 }
 
 // Room model
@@ -113,6 +118,20 @@ message SendMessageRequest {
   int64 room_id = 1;
   string content = 2;
   string type = 3; // text, image, file
+  // File attachment fields (used when type is image or file)
+  string file_url = 4;
+  string file_name = 5;
+  int64 file_size = 6;
+  string mime_type = 7;
+}
+
+// File upload response
+message UploadFileResponse {
+  string file_url = 1;
+  string file_name = 2;
+  int64 file_size = 3;
+  string mime_type = 4;
+  string message_type = 5; // "image" or "file" based on mime type
 }
 
 message GetMessagesRequest {

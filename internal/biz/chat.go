@@ -26,6 +26,11 @@ type Message struct {
 	IsEdited  bool
 	EditedAt  *time.Time
 	CreatedAt time.Time
+	// File attachment fields
+	FileURL  string
+	FileName string
+	FileSize int64
+	MimeType string
 }
 
 // MessageRead represents message read receipt
@@ -96,6 +101,10 @@ func (uc *ChatUseCase) SendMessage(ctx context.Context, userID int64, req *chatV
 		Username: user.Username,
 		Content:  req.Content,
 		Type:     req.Type,
+		FileURL:  req.FileUrl,
+		FileName: req.FileName,
+		FileSize: req.FileSize,
+		MimeType: req.MimeType,
 	}
 
 	sentMessage, err := uc.repo.SendMessage(ctx, message)
@@ -218,12 +227,6 @@ func (uc *ChatUseCase) validateSendMessageRequest(req *chatV1.SendMessageRequest
 	if req.RoomId <= 0 {
 		return errors.New("invalid room ID")
 	}
-	if req.Content == "" {
-		return errors.New("message content cannot be empty")
-	}
-	if len(req.Content) > 4000 {
-		return errors.New("message content too long")
-	}
 	if req.Type == "" {
 		req.Type = "text" // Default to text
 	}
@@ -234,6 +237,25 @@ func (uc *ChatUseCase) validateSendMessageRequest(req *chatV1.SendMessageRequest
 	}
 	if !validTypes[req.Type] {
 		return errors.New("invalid message type")
+	}
+
+	// For file/image messages, file_url is required
+	if req.Type == "image" || req.Type == "file" {
+		if req.FileUrl == "" {
+			return errors.New("file_url is required for image/file messages")
+		}
+		if req.FileName == "" {
+			return errors.New("file_name is required for image/file messages")
+		}
+	} else {
+		// For text messages, content is required
+		if req.Content == "" {
+			return errors.New("message content cannot be empty")
+		}
+	}
+
+	if len(req.Content) > 4000 {
+		return errors.New("message content too long")
 	}
 	return nil
 }

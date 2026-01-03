@@ -509,6 +509,147 @@ body {
     padding: 12px 32px;
 }
 
+/* ==================== FILE UPLOAD ==================== */
+.btn-attach {
+    background: none;
+    border: none;
+    font-size: 1.4em;
+    cursor: pointer;
+    padding: 8px 12px;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+}
+
+.btn-attach:hover {
+    opacity: 1;
+}
+
+.file-preview {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 15px;
+    margin-bottom: 10px;
+    background: var(--light-bg);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.file-preview-content {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+}
+
+.image-preview {
+    max-width: 150px;
+    max-height: 100px;
+    border-radius: 6px;
+    object-fit: cover;
+}
+
+.file-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.file-info .file-icon {
+    font-size: 1.5em;
+}
+
+.file-info #fileName {
+    font-weight: 500;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-info #fileSize {
+    color: var(--text-secondary);
+    font-size: 0.85em;
+}
+
+.btn-remove-file {
+    background: var(--danger-color);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    font-size: 1.2em;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
+
+.btn-remove-file:hover {
+    background: #c82333;
+}
+
+/* ==================== MESSAGE FILE/IMAGE ==================== */
+.message-image {
+    margin-bottom: 8px;
+}
+
+.message-image img {
+    max-width: 300px;
+    max-height: 300px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.message-image img:hover {
+    transform: scale(1.02);
+}
+
+.message-file {
+    margin-bottom: 8px;
+}
+
+.message-file a {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 15px;
+    background: var(--light-bg);
+    border-radius: 6px;
+    text-decoration: none;
+    color: var(--text-primary);
+    transition: background 0.2s;
+}
+
+.message-file a:hover {
+    background: var(--border-color);
+}
+
+.message-file .file-icon {
+    font-size: 1.3em;
+}
+
+.message-file .file-name {
+    flex: 1;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.message-file .file-size {
+    color: var(--text-secondary);
+    font-size: 0.85em;
+}
+
+.message-text {
+    margin-top: 8px;
+}
+
 /* ==================== MODAL ==================== */
 .modal {
     position: fixed;

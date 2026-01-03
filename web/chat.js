@@ -14,6 +14,7 @@ let rooms = [];
 let token = localStorage.getItem('token');
 let userId = localStorage.getItem('userId');
 let username = localStorage.getItem('username');
+let selectedFile = null;      // Currently selected file for upload
 
 // Check authentication
 if (!token || !userId || !username) {
@@ -378,7 +379,12 @@ async function loadMessages(roomId) {
                         user_id: msg.user_id,
                         username: msg.username,
                         content: msg.content,
-                        created_at: msg.created_at
+                        created_at: msg.created_at,
+                        message_type: msg.file_url ? (msg.mime_type?.startsWith('image/') ? 'image' : 'file') : 'text',
+                        file_url: msg.file_url,
+                        file_name: msg.file_name,
+                        file_size: msg.file_size,
+                        mime_type: msg.mime_type
                     });
                 });
             } else {
@@ -392,16 +398,113 @@ async function loadMessages(roomId) {
     }
 }
 
-function sendMessage(content) {
+function sendMessage(content, fileData = null) {
     if (!currentRoom || !ws || ws.readyState !== WebSocket.OPEN) {
         showAlert('Not connected to chat', 'error');
         return;
     }
 
-    ws.send(JSON.stringify({
+    const message = {
         type: 'send_message',
         content: content
-    }));
+    };
+
+    // Add file data if present
+    if (fileData) {
+        message.message_type = fileData.message_type;
+        message.file_url = fileData.file_url;
+        message.file_name = fileData.file_name;
+        message.file_size = fileData.file_size;
+        message.mime_type = fileData.mime_type;
+    }
+
+    ws.send(JSON.stringify(message));
+}
+
+// Upload file to server
+async function uploadFile(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+        const response = await fetch(`${API_URL}/upload`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            },
+            body: formData
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Upload failed');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Upload error:', error);
+        throw error;
+    }
+}
+
+// Handle file selection
+function handleFileSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    // Check file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+        showAlert('File too large. Maximum size is 10MB.', 'error');
+        event.target.value = '';
+        return;
+    }
+
+    selectedFile = file;
+    showFilePreview(file);
+}
+
+// Show file preview
+function showFilePreview(file) {
+    const preview = document.getElementById('filePreview');
+    const imagePreview = document.getElementById('imagePreview');
+    const fileInfo = document.getElementById('fileInfo');
+    const fileName = document.getElementById('fileName');
+    const fileSize = document.getElementById('fileSize');
+
+    preview.style.display = 'flex';
+
+    if (file.type.startsWith('image/')) {
+        // Show image preview
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            imagePreview.src = e.target.result;
+            imagePreview.style.display = 'block';
+        };
+        reader.readAsDataURL(file);
+        fileInfo.style.display = 'none';
+    } else {
+        // Show file info
+        imagePreview.style.display = 'none';
+        fileInfo.style.display = 'flex';
+        fileName.textContent = file.name;
+        fileSize.textContent = formatFileSize(file.size);
+    }
+}
+
+// Remove selected file
+function removeSelectedFile() {
+    selectedFile = null;
+    document.getElementById('fileInput').value = '';
+    document.getElementById('filePreview').style.display = 'none';
+    document.getElementById('imagePreview').style.display = 'none';
+    document.getElementById('fileInfo').style.display = 'none';
+}
+
+// Format file size
+function formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
 // ==================== UI FUNCTIONS ====================
@@ -442,12 +545,46 @@ function displayMessage(msg) {
 
     const time = msg.created_at ? new Date(msg.created_at * 1000).toLocaleTimeString() : new Date().toLocaleTimeString();
 
+    // Build message content based on type
+    let contentHtml = '';
+
+    if (msg.message_type === 'image' && msg.file_url) {
+        // Image message
+        contentHtml = `
+            <div class="message-image">
+                <a href="${escapeHtml(msg.file_url)}" target="_blank">
+                    <img src="${escapeHtml(msg.file_url)}" alt="${escapeHtml(msg.file_name || 'Image')}" loading="lazy">
+                </a>
+            </div>
+        `;
+        if (msg.content) {
+            contentHtml += `<div class="message-text">${escapeHtml(msg.content)}</div>`;
+        }
+    } else if (msg.message_type === 'file' && msg.file_url) {
+        // File message
+        contentHtml = `
+            <div class="message-file">
+                <a href="${escapeHtml(msg.file_url)}" target="_blank" download="${escapeHtml(msg.file_name || 'file')}">
+                    <span class="file-icon">📎</span>
+                    <span class="file-name">${escapeHtml(msg.file_name || 'Download file')}</span>
+                    <span class="file-size">${msg.file_size ? formatFileSize(msg.file_size) : ''}</span>
+                </a>
+            </div>
+        `;
+        if (msg.content) {
+            contentHtml += `<div class="message-text">${escapeHtml(msg.content)}</div>`;
+        }
+    } else {
+        // Text message
+        contentHtml = escapeHtml(msg.content);
+    }
+
     messageDiv.innerHTML = `
         <div class="message-header">
             <span class="message-author">${escapeHtml(msg.username)}</span>
             <span class="message-time">${time}</span>
         </div>
-        <div class="message-content">${escapeHtml(msg.content)}</div>
+        <div class="message-content">${contentHtml}</div>
     `;
 
     messagesContainer.appendChild(messageDiv);
@@ -483,12 +620,34 @@ function closeCreateRoomModal() {
 
 // ==================== EVENT LISTENERS ====================
 function setupEventListeners() {
+    // File input change
+    document.getElementById('fileInput').addEventListener('change', handleFileSelect);
+
     // Message form
-    document.getElementById('messageForm').addEventListener('submit', (e) => {
+    document.getElementById('messageForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const input = document.getElementById('messageInput');
         const content = input.value.trim();
 
+        // If there's a file selected, upload it first
+        if (selectedFile) {
+            try {
+                showAlert('Uploading file...', 'info');
+                const uploadResult = await uploadFile(selectedFile);
+
+                // Send message with file data
+                sendMessage(content || '', uploadResult);
+
+                // Clear file selection
+                removeSelectedFile();
+                input.value = '';
+            } catch (error) {
+                showAlert('Failed to upload file: ' + error.message, 'error');
+            }
+            return;
+        }
+
+        // Text-only message
         if (content) {
             sendMessage(content);
             input.value = '';

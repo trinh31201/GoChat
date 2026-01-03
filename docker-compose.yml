@@ -8,6 +8,7 @@ services:
       POSTGRES_USER: chatuser
       POSTGRES_PASSWORD: chatpass
       POSTGRES_DB: chatdb
+    command: postgres -c max_connections=500 -c shared_buffers=256MB
     ports:
       - "5433:5432"
     volumes:
@@ -103,12 +104,20 @@ services:
         condition: service_healthy
       user-service:
         condition: service_healthy
+      minio:
+        condition: service_healthy
     environment:
       - DATABASE_URL=postgresql://chatuser:chatpass@postgres:5432/chatdb?sslmode=disable
       - REDIS_URL=redis:6379
       - REDIS_PASSWORD=
       - USER_SERVICE_ADDR=user-service:9000
       - SERVER_ID=chat-1
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_BUCKET=chat-images
+      - MINIO_PUBLIC_URL=http://localhost:9100
+      - JWT_SECRET=your-secret-key-change-in-production
     ports:
       - "8002:8000"
       - "9002:9000"
@@ -131,12 +140,20 @@ services:
         condition: service_healthy
       user-service:
         condition: service_healthy
+      minio:
+        condition: service_healthy
     environment:
       - DATABASE_URL=postgresql://chatuser:chatpass@postgres:5432/chatdb?sslmode=disable
       - REDIS_URL=redis:6379
       - REDIS_PASSWORD=
       - USER_SERVICE_ADDR=user-service:9000
       - SERVER_ID=chat-2
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_BUCKET=chat-images
+      - MINIO_PUBLIC_URL=http://localhost:9100
+      - JWT_SECRET=your-secret-key-change-in-production
     ports:
       - "8003:8000"
       - "9003:9000"

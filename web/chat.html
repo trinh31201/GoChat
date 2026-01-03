@@ -59,13 +59,28 @@
 
                 <!-- Message Input -->
                 <div class="message-input-container">
+                    <!-- File Preview -->
+                    <div id="filePreview" class="file-preview" style="display: none;">
+                        <div class="file-preview-content">
+                            <img id="imagePreview" class="image-preview" style="display: none;">
+                            <div id="fileInfo" class="file-info" style="display: none;">
+                                <span class="file-icon">📎</span>
+                                <span id="fileName"></span>
+                                <span id="fileSize"></span>
+                            </div>
+                        </div>
+                        <button type="button" class="btn-remove-file" onclick="removeSelectedFile()">×</button>
+                    </div>
                     <form id="messageForm">
+                        <input type="file" id="fileInput" accept="image/*,.pdf,.doc,.docx,.txt" style="display: none;">
+                        <button type="button" class="btn-attach" onclick="document.getElementById('fileInput').click()" title="Attach file">
+                            📎
+                        </button>
                         <input
                             type="text"
                             id="messageInput"
                             placeholder="Type a message..."
                             autocomplete="off"
-                            required
                         >
                         <button type="submit" class="btn btn-primary">Send</button>
                     </form>
@@ -110,6 +125,4 @@
 
     <script src="/web/chat.js"></script>
 </body>
-</html>..
-][\
-]
+</html>

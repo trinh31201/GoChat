@@ -51,6 +51,9 @@ func main() {
 	defer cleanup()
 	logHelper.Info("connected to database and redis")
 
+	// Connect to MinIO for file storage
+	minioStorage := data.NewMinioStorage(dataConf, logger)
+
 	// Connect to User Service via gRPC
 	userServiceAddr := os.Getenv("USER_SERVICE_ADDR")
 	if userServiceAddr == "" {
@@ -94,9 +97,9 @@ func main() {
 	chatV1.RegisterRoomServiceServer(grpcServer, roomService)
 	chatV1.RegisterChatServiceServer(grpcServer, chatService)
 
-	// HTTP server with WebSocket
+	// HTTP server with WebSocket and file upload
 	redisClient := data.NewRedisClient(dataData)
-	httpServer := server.NewHTTPServerWithUserClient(serverConf, roomService, chatService, redisClient, userClient, logger)
+	httpServer := server.NewHTTPServerWithUserClient(serverConf, roomService, chatService, redisClient, userClient, minioStorage, logger)
 
 	// ============ 4. START ============
 	app := kratos.New(
@@ -125,6 +128,28 @@ func loadDataConfig() *conf.Data {
 		redisURL = "localhost:6381"
 	}
 
+	// MinIO config
+	minioEndpoint := os.Getenv("MINIO_ENDPOINT")
+	if minioEndpoint == "" {
+		minioEndpoint = "localhost:9100"
+	}
+	minioAccessKey := os.Getenv("MINIO_ACCESS_KEY")
+	if minioAccessKey == "" {
+		minioAccessKey = "minioadmin"
+	}
+	minioSecretKey := os.Getenv("MINIO_SECRET_KEY")
+	if minioSecretKey == "" {
+		minioSecretKey = "minioadmin"
+	}
+	minioBucket := os.Getenv("MINIO_BUCKET")
+	if minioBucket == "" {
+		minioBucket = "chat-images"
+	}
+	minioPublicURL := os.Getenv("MINIO_PUBLIC_URL")
+	if minioPublicURL == "" {
+		minioPublicURL = "http://localhost:9100"
+	}
+
 	return &conf.Data{
 		Database: &conf.Data_Database{
 			Driver: "postgres",
@@ -132,6 +157,14 @@ func loadDataConfig() *conf.Data {
 		},
 		Redis: &conf.Data_Redis{
 			Addr: redisURL,
+		},
+		Minio: &conf.Data_Minio{
+			Endpoint:   minioEndpoint,
+			AccessKey:  minioAccessKey,
+			SecretKey:  minioSecretKey,
+			BucketName: minioBucket,
+			UseSsl:     false,
+			PublicUrl:  minioPublicURL,
 		},
 	}
 }

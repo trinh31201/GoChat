@@ -44,8 +44,8 @@ func (r *messageRepo) CreateMessage(ctx context.Context, message *chatV1.Message
 
 	// Insert message into database
 	query := `
-		INSERT INTO messages (room_id, user_id, content, type, created_at)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO messages (room_id, user_id, content, type, file_url, file_name, file_size, mime_type, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id, created_at`
 
 	now := time.Now()
@@ -58,6 +58,10 @@ func (r *messageRepo) CreateMessage(ctx context.Context, message *chatV1.Message
 		message.UserId,
 		message.Content,
 		message.Type,
+		nullString(message.FileUrl),
+		nullString(message.FileName),
+		nullInt64(message.FileSize),
+		nullString(message.MimeType),
 		now,
 	).Scan(&message.Id, &createdAt)
 
@@ -91,8 +95,9 @@ func (r *messageRepo) GetMessages(ctx context.Context, roomID int64, limit int32
 
 	if beforeID > 0 {
 		query = `
-			SELECT m.id, m.room_id, m.user_id, u.username, m.content, m.type, 
-				   m.is_edited, m.edited_at, m.created_at
+			SELECT m.id, m.room_id, m.user_id, u.username, m.content, m.type,
+				   m.is_edited, m.edited_at, m.created_at,
+				   m.file_url, m.file_name, m.file_size, m.mime_type
 			FROM messages m
 			JOIN users u ON m.user_id = u.id
 			WHERE m.room_id = $1 AND m.id < $2
@@ -101,8 +106,9 @@ func (r *messageRepo) GetMessages(ctx context.Context, roomID int64, limit int32
 		args = []interface{}{roomID, beforeID, limit}
 	} else {
 		query = `
-			SELECT m.id, m.room_id, m.user_id, u.username, m.content, m.type, 
-				   m.is_edited, m.edited_at, m.created_at
+			SELECT m.id, m.room_id, m.user_id, u.username, m.content, m.type,
+				   m.is_edited, m.edited_at, m.created_at,
+				   m.file_url, m.file_name, m.file_size, m.mime_type
 			FROM messages m
 			JOIN users u ON m.user_id = u.id
 			WHERE m.room_id = $1
@@ -122,6 +128,8 @@ func (r *messageRepo) GetMessages(ctx context.Context, roomID int64, limit int32
 		message := &chatV1.Message{}
 		var createdAt time.Time
 		var editedAt sql.NullTime
+		var fileURL, fileName, mimeType sql.NullString
+		var fileSize sql.NullInt64
 
 		err := rows.Scan(
 			&message.Id,
@@ -133,6 +141,10 @@ func (r *messageRepo) GetMessages(ctx context.Context, roomID int64, limit int32
 			&message.IsEdited,
 			&editedAt,
 			&createdAt,
+			&fileURL,
+			&fileName,
+			&fileSize,
+			&mimeType,
 		)
 		if err != nil {
 			return nil, false, fmt.Errorf("failed to scan message: %w", err)
@@ -141,6 +153,18 @@ func (r *messageRepo) GetMessages(ctx context.Context, roomID int64, limit int32
 		message.CreatedAt = createdAt.Unix()
 		if editedAt.Valid {
 			message.EditedAt = editedAt.Time.Unix()
+		}
+		if fileURL.Valid {
+			message.FileUrl = fileURL.String
+		}
+		if fileName.Valid {
+			message.FileName = fileName.String
+		}
+		if fileSize.Valid {
+			message.FileSize = fileSize.Int64
+		}
+		if mimeType.Valid {
+			message.MimeType = mimeType.String
 		}
 
 		messages = append(messages, message)
@@ -171,10 +195,13 @@ func (r *messageRepo) GetMessageByID(ctx context.Context, id int64) (*chatV1.Mes
 	message := &chatV1.Message{}
 	var createdAt time.Time
 	var editedAt sql.NullTime
+	var fileURL, fileName, mimeType sql.NullString
+	var fileSize sql.NullInt64
 
 	query := `
-		SELECT m.id, m.room_id, m.user_id, u.username, m.content, m.type, 
-		       m.is_edited, m.edited_at, m.created_at
+		SELECT m.id, m.room_id, m.user_id, u.username, m.content, m.type,
+		       m.is_edited, m.edited_at, m.created_at,
+		       m.file_url, m.file_name, m.file_size, m.mime_type
 		FROM messages m
 		JOIN users u ON m.user_id = u.id
 		WHERE m.id = $1`
@@ -189,6 +216,10 @@ func (r *messageRepo) GetMessageByID(ctx context.Context, id int64) (*chatV1.Mes
 		&message.IsEdited,
 		&editedAt,
 		&createdAt,
+		&fileURL,
+		&fileName,
+		&fileSize,
+		&mimeType,
 	)
 
 	if err != nil {
@@ -201,6 +232,18 @@ func (r *messageRepo) GetMessageByID(ctx context.Context, id int64) (*chatV1.Mes
 	message.CreatedAt = createdAt.Unix()
 	if editedAt.Valid {
 		message.EditedAt = editedAt.Time.Unix()
+	}
+	if fileURL.Valid {
+		message.FileUrl = fileURL.String
+	}
+	if fileName.Valid {
+		message.FileName = fileName.String
+	}
+	if fileSize.Valid {
+		message.FileSize = fileSize.Int64
+	}
+	if mimeType.Valid {
+		message.MimeType = mimeType.String
 	}
 
 	return message, nil
@@ -335,4 +378,19 @@ func (r *messageRepo) deserializeMessage(data string) *chatV1.Message {
 		return nil
 	}
 	return message
+}
+
+// Helper functions for nullable database values
+func nullString(s string) sql.NullString {
+	if s == "" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: s, Valid: true}
+}
+
+func nullInt64(i int64) sql.NullInt64 {
+	if i == 0 {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: i, Valid: true}
 }

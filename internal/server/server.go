@@ -2,6 +2,7 @@ package server
 
 import (
 	netHttp "net/http"
+	"net/http/pprof"
 
 	"github.com/go-kratos/kratos/v2/log"
 	"github.com/go-kratos/kratos/v2/middleware/recovery"
@@ -17,6 +18,7 @@ import (
 	"github.com/yourusername/chat-app/internal/conf"
 	"github.com/yourusername/chat-app/internal/middleware"
 	"github.com/yourusername/chat-app/internal/service"
+	"github.com/yourusername/chat-app/internal/storage"
 )
 
 // ProviderSet is server providers.
@@ -138,6 +140,18 @@ func NewHTTPServer(
 		netHttp.NotFound(w, r)
 	})
 
+	// pprof endpoints for profiling
+	srv.HandleFunc("/debug/pprof/", pprof.Index)
+	srv.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	srv.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	srv.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	srv.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	srv.Handle("/debug/pprof/goroutine", pprof.Handler("goroutine"))
+	srv.Handle("/debug/pprof/heap", pprof.Handler("heap"))
+	srv.Handle("/debug/pprof/allocs", pprof.Handler("allocs"))
+	srv.Handle("/debug/pprof/block", pprof.Handler("block"))
+	srv.Handle("/debug/pprof/mutex", pprof.Handler("mutex"))
+
 	return srv
 }
 
@@ -149,6 +163,7 @@ func NewHTTPServerWithUserClient(
 	chatService *service.ChatService,
 	redisClient *redis.Client,
 	userClient *client.UserClient,
+	minioStorage *storage.MinioStorage,
 	logger log.Logger,
 ) *http.Server {
 	var opts = []http.ServerOption{
@@ -191,6 +206,11 @@ func NewHTTPServerWithUserClient(
 	// WebSocket endpoint - uses userClient for auth
 	srv.HandleFunc("/ws", HandleWebSocketWithUserClient(hub, userClient))
 
+	// File upload endpoint
+	if minioStorage != nil {
+		srv.HandleFunc("/api/v1/upload", HandleUpload(minioStorage, userClient, logger))
+	}
+
 	// Static files
 	webDir := netHttp.Dir("./web")
 	srv.HandlePrefix("/web/", netHttp.StripPrefix("/web/", netHttp.FileServer(webDir)))
@@ -212,6 +232,18 @@ func NewHTTPServerWithUserClient(
 		}
 		netHttp.NotFound(w, r)
 	})
+
+	// pprof endpoints for profiling
+	srv.HandleFunc("/debug/pprof/", pprof.Index)
+	srv.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	srv.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	srv.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	srv.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	srv.Handle("/debug/pprof/goroutine", pprof.Handler("goroutine"))
+	srv.Handle("/debug/pprof/heap", pprof.Handler("heap"))
+	srv.Handle("/debug/pprof/allocs", pprof.Handler("allocs"))
+	srv.Handle("/debug/pprof/block", pprof.Handler("block"))
+	srv.Handle("/debug/pprof/mutex", pprof.Handler("mutex"))
 
 	return srv
 }

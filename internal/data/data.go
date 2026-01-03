@@ -9,12 +9,14 @@ import (
 	_ "github.com/lib/pq" // PostgreSQL driver
 	"github.com/redis/go-redis/v9"
 	"github.com/yourusername/chat-app/internal/conf"
+	"github.com/yourusername/chat-app/internal/storage"
 )
 
 // ProviderSet is data providers.
 var ProviderSet = wire.NewSet(
 	NewData,
 	NewRedisClient,
+	NewMinioStorage,
 	NewUserRepo,
 	NewRoomRepo,
 	NewMessageRepo,
@@ -94,4 +96,32 @@ func NewData(c *conf.Data, logger log.Logger) (*Data, func(), error) {
 // NewRedisClient provides redis client from Data
 func NewRedisClient(d *Data) *redis.Client {
 	return d.redis
+}
+
+// NewMinioStorage creates a new MinIO storage client
+func NewMinioStorage(c *conf.Data, logger log.Logger) *storage.MinioStorage {
+	helper := log.NewHelper(log.With(logger, "module", "data/minio"))
+
+	if c.Minio == nil {
+		helper.Warn("MinIO configuration not found, file uploads disabled")
+		return nil
+	}
+
+	cfg := &storage.MinioConfig{
+		Endpoint:   c.Minio.Endpoint,
+		AccessKey:  c.Minio.AccessKey,
+		SecretKey:  c.Minio.SecretKey,
+		BucketName: c.Minio.BucketName,
+		UseSSL:     c.Minio.UseSsl,
+		PublicURL:  c.Minio.PublicUrl,
+	}
+
+	store, err := storage.NewMinioStorage(cfg, logger)
+	if err != nil {
+		helper.Warnf("Failed to initialize MinIO: %v, file uploads disabled", err)
+		return nil
+	}
+
+	helper.Info("MinIO storage connected")
+	return store
 }

@@ -19,6 +19,13 @@ data:
     db: 0
     read_timeout: 3s
     write_timeout: 3s
+  minio:
+    endpoint: ${MINIO_ENDPOINT:minio:9000}
+    access_key: ${MINIO_ACCESS_KEY:minioadmin}
+    secret_key: ${MINIO_SECRET_KEY:minioadmin}
+    bucket_name: ${MINIO_BUCKET:chat-images}
+    use_ssl: false
+    public_url: ${MINIO_PUBLIC_URL:http://localhost:9100}
 
 auth:
   jwt_secret: ${JWT_SECRET}

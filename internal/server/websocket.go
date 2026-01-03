@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-kratos/kratos/v2/log"
@@ -48,6 +50,12 @@ type RedisMessage struct {
 	Username  string `json:"username"`
 	Content   string `json:"content"`
 	CreatedAt int64  `json:"created_at,omitempty"`
+	// File attachment fields
+	Type     string `json:"type,omitempty"`      // text, image, file
+	FileURL  string `json:"file_url,omitempty"`
+	FileName string `json:"file_name,omitempty"`
+	FileSize int64  `json:"file_size,omitempty"`
+	MimeType string `json:"mime_type,omitempty"`
 }
 
 // safeSend safely sends a message to a client's channel with panic recovery
@@ -62,7 +70,8 @@ func (c *Client) safeSend(message []byte) bool {
 	case c.Send <- message:
 		return true
 	default:
-		// Channel is full
+		// Channel is full - track dropped message
+		c.Hub.droppedMessages.Add(1)
 		return false
 	}
 }
@@ -93,6 +102,10 @@ type Hub struct {
 
 	// User Client for microservices mode (calls User Service for auth)
 	userClient *client.UserClient
+
+	// Performance monitoring
+	droppedMessages  atomic.Int64 // Messages dropped due to full buffer
+	activeBroadcasts atomic.Int64 // Currently running broadcast goroutines
 }
 
 // WebSocketMessage represents messages between client and server
@@ -102,6 +115,12 @@ type WebSocketMessage struct {
 	Content string          `json:"content,omitempty"`
 	Token   string          `json:"token,omitempty"`
 	Data    json.RawMessage `json:"data,omitempty"`
+	// File attachment fields (for send_message with type=image/file)
+	MessageType string `json:"message_type,omitempty"` // text, image, file
+	FileURL     string `json:"file_url,omitempty"`
+	FileName    string `json:"file_name,omitempty"`
+	FileSize    int64  `json:"file_size,omitempty"`
+	MimeType    string `json:"mime_type,omitempty"`
 }
 
 // NewHub creates a new WebSocket hub (monolith mode)
@@ -118,6 +137,9 @@ func NewHub(chatService *service.ChatService, roomService *service.RoomService, 
 
 	// Start Redis subscriber
 	go hub.subscribeToRedis()
+
+	// Start performance monitor
+	go hub.monitorPerformance()
 
 	return hub
 }
@@ -139,7 +161,37 @@ func NewHubWithUserClient(chatService *service.ChatService, roomService *service
 	// Start Redis subscriber
 	go hub.subscribeToRedis()
 
+	// Start performance monitor
+	go hub.monitorPerformance()
+
 	return hub
+}
+
+// monitorPerformance logs performance stats every 5 seconds
+func (h *Hub) monitorPerformance() {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		// Count total clients
+		h.mu.RLock()
+		totalClients := 0
+		totalRooms := len(h.rooms)
+		for _, clients := range h.rooms {
+			totalClients += len(clients)
+		}
+		h.mu.RUnlock()
+
+		// Get stats
+		goroutines := runtime.NumGoroutine()
+		dropped := h.droppedMessages.Load()
+		broadcasts := h.activeBroadcasts.Load()
+		regLen := len(h.register)
+		unregLen := len(h.unregister)
+
+		h.log.Infof("[PERF] goroutines=%d clients=%d rooms=%d dropped=%d activeBroadcasts=%d registerQueue=%d/%d unregisterQueue=%d/%d",
+			goroutines, totalClients, totalRooms, dropped, broadcasts, regLen, 100, unregLen, 100)
+	}
 }
 
 // Run starts the hub's event loop
@@ -352,7 +404,7 @@ func (c *Client) readPumpWithUserClient(userClient *client.UserClient) {
 				c.sendError("Please authenticate and join a room first")
 				continue
 			}
-			if err := c.sendMessage(msg.Content); err != nil {
+			if err := c.sendMessage(&msg); err != nil {
 				c.sendError(fmt.Sprintf("Failed to send message: %v", err))
 				continue
 			}
@@ -448,13 +500,13 @@ func (c *Client) readPump(jwtSecret string) {
 			}
 
 		case "send_message":
-			// Send a message to the room
+			// Send a message to the room (text, image, or file)
 			if c.ID == 0 || c.RoomID == 0 {
 				c.sendError("Please authenticate and join a room first")
 				continue
 			}
 
-			if err := c.sendMessage(msg.Content); err != nil {
+			if err := c.sendMessage(&msg); err != nil {
 				c.sendError(fmt.Sprintf("Failed to send message: %v", err))
 				continue
 			}
@@ -602,12 +654,22 @@ func (h *Hub) GetRoomClients(roomID int64) map[*Client]bool {
 	return clients
 }
 
-// sendMessage sends a message to the room
-func (c *Client) sendMessage(content string) error {
+// sendMessage sends a message to the room (supports text, image, file)
+func (c *Client) sendMessage(wsMsg *WebSocketMessage) error {
 	startTime := time.Now()
 
-	if content == "" {
+	// Determine message type
+	msgType := wsMsg.MessageType
+	if msgType == "" {
+		msgType = "text"
+	}
+
+	// Validate based on type
+	if msgType == "text" && wsMsg.Content == "" {
 		return fmt.Errorf("empty message")
+	}
+	if (msgType == "image" || msgType == "file") && wsMsg.FileURL == "" {
+		return fmt.Errorf("file_url required for image/file messages")
 	}
 
 	// Use the chat service to send the message
@@ -616,14 +678,19 @@ func (c *Client) sendMessage(content string) error {
 	ctx = context.WithValue(ctx, middleware.UsernameKey, c.Username)
 
 	msg, err := c.Hub.chatService.SendMessage(ctx, &chatV1.SendMessageRequest{
-		RoomId:  c.RoomID,
-		Content: content,
-		Type:    "text",
+		RoomId:   c.RoomID,
+		Content:  wsMsg.Content,
+		Type:     msgType,
+		FileUrl:  wsMsg.FileURL,
+		FileName: wsMsg.FileName,
+		FileSize: wsMsg.FileSize,
+		MimeType: wsMsg.MimeType,
 	})
 	if err != nil {
 		c.Hub.log.Errorw("Failed to send message",
 			"user_id", c.ID,
 			"room_id", c.RoomID,
+			"type", msgType,
 			"error", err,
 			"duration_ms", time.Since(startTime).Milliseconds(),
 		)
@@ -635,7 +702,8 @@ func (c *Client) sendMessage(content string) error {
 		"user_id", c.ID,
 		"username", c.Username,
 		"room_id", c.RoomID,
-		"content_length", len(content),
+		"type", msgType,
+		"content_length", len(wsMsg.Content),
 		"duration_ms", time.Since(startTime).Milliseconds(),
 	)
 
@@ -647,6 +715,11 @@ func (c *Client) sendMessage(content string) error {
 		Username:  msg.Username,
 		Content:   msg.Content,
 		CreatedAt: msg.CreatedAt,
+		Type:      msg.Type,
+		FileURL:   msg.FileUrl,
+		FileName:  msg.FileName,
+		FileSize:  msg.FileSize,
+		MimeType:  msg.MimeType,
 	}
 
 	msgBytes, _ := json.Marshal(redisMsg)
@@ -720,6 +793,16 @@ func (h *Hub) subscribeToRedis() {
 			"content":    redisMsg.Content,
 			"created_at": redisMsg.CreatedAt,
 		}
+
+		// Add file fields if present
+		if redisMsg.FileURL != "" {
+			msgData["message_type"] = redisMsg.Type
+			msgData["file_url"] = redisMsg.FileURL
+			msgData["file_name"] = redisMsg.FileName
+			msgData["file_size"] = redisMsg.FileSize
+			msgData["mime_type"] = redisMsg.MimeType
+		}
+
 		msgBytes, _ := json.Marshal(msgData)
 
 		h.log.Infof("Broadcasting to %d local clients in room %d", len(clients), redisMsg.RoomID)
