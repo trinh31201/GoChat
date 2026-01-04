@@ -2,6 +2,14 @@
 
 A scalable real-time chat application built with Go, featuring microservices architecture, WebSocket support, and horizontal scaling.
 
+## Live Demo
+
+**Try it now:** [http://54.79.163.178](http://54.79.163.178)
+
+- Create an account and start chatting in real-time
+- Create or join chat rooms
+- Experience WebSocket-powered instant messaging
+
 ## Architecture
 
 ```
