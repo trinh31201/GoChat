@@ -1,0 +1,483 @@
+# Generated with protoc-gen-openapi
+# https://github.com/google/gnostic/tree/master/cmd/protoc-gen-openapi
+
+openapi: 3.0.3
+info:
+    title: "Chat Application API"
+    description: "Real-time chat application API with support for users, rooms, and messaging"
+    version: 1.0.0
+paths:
+    /api/v1/messages:
+        post:
+            tags:
+                - ChatService
+            description: Send a message
+            operationId: ChatService_SendMessage
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.chat.v1.SendMessageRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.chat.v1.Message'
+    /api/v1/messages/{messageId}/read:
+        post:
+            tags:
+                - ChatService
+            description: Mark message as read
+            operationId: ChatService_MarkAsRead
+            parameters:
+                - name: messageId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.chat.v1.MarkAsReadRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.chat.v1.MarkAsReadResponse'
+    /api/v1/rooms:
+        post:
+            tags:
+                - RoomService
+            description: Create a new room
+            operationId: RoomService_CreateRoom
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.chat.v1.CreateRoomRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.chat.v1.Room'
+    /api/v1/rooms/{id}:
+        get:
+            tags:
+                - RoomService
+            description: Get room details
+            operationId: RoomService_GetRoom
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.chat.v1.Room'
+    /api/v1/rooms/{roomId}/join:
+        post:
+            tags:
+                - RoomService
+            description: Join a room
+            operationId: RoomService_JoinRoom
+            parameters:
+                - name: roomId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.chat.v1.JoinRoomRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.chat.v1.JoinRoomResponse'
+    /api/v1/rooms/{roomId}/leave:
+        post:
+            tags:
+                - RoomService
+            description: Leave a room
+            operationId: RoomService_LeaveRoom
+            parameters:
+                - name: roomId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.chat.v1.LeaveRoomRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.chat.v1.LeaveRoomResponse'
+    /api/v1/rooms/{roomId}/messages:
+        get:
+            tags:
+                - ChatService
+            description: Get messages for a room
+            operationId: ChatService_GetMessages
+            parameters:
+                - name: roomId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: limit
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+                - name: beforeId
+                  in: query
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.chat.v1.GetMessagesResponse'
+    /api/v1/users/login:
+        post:
+            tags:
+                - UserService
+            description: Login user
+            operationId: UserService_Login
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.user.v1.LoginRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.user.v1.LoginResponse'
+    /api/v1/users/register:
+        post:
+            tags:
+                - UserService
+            description: Register a new user
+            operationId: UserService_Register
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.user.v1.RegisterRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.user.v1.RegisterResponse'
+    /api/v1/users/{id}:
+        get:
+            tags:
+                - UserService
+            description: Get user profile
+            operationId: UserService_GetUser
+            parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.user.v1.User'
+    /api/v1/users/{userId}/rooms:
+        get:
+            tags:
+                - RoomService
+            description: List user's rooms
+            operationId: RoomService_ListRooms
+            parameters:
+                - name: userId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: limit
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+                - name: offset
+                  in: query
+                  schema:
+                    type: integer
+                    format: int32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.chat.v1.ListRoomsResponse'
+    /api/v1/users/{userId}/status:
+        put:
+            tags:
+                - UserService
+            description: Update user status (online/offline/away)
+            operationId: UserService_UpdateStatus
+            parameters:
+                - name: userId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/api.user.v1.UpdateStatusRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/api.user.v1.UpdateStatusResponse'
+components:
+    schemas:
+        api.chat.v1.CreateRoomRequest:
+            type: object
+            properties:
+                name:
+                    type: string
+                description:
+                    type: string
+                type:
+                    type: string
+        api.chat.v1.GetMessagesResponse:
+            type: object
+            properties:
+                messages:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/api.chat.v1.Message'
+                hasMore:
+                    type: boolean
+        api.chat.v1.JoinRoomRequest:
+            type: object
+            properties:
+                roomId:
+                    type: string
+                userId:
+                    type: string
+        api.chat.v1.JoinRoomResponse:
+            type: object
+            properties:
+                success:
+                    type: boolean
+                room:
+                    $ref: '#/components/schemas/api.chat.v1.Room'
+        api.chat.v1.LeaveRoomRequest:
+            type: object
+            properties:
+                roomId:
+                    type: string
+                userId:
+                    type: string
+        api.chat.v1.LeaveRoomResponse:
+            type: object
+            properties:
+                success:
+                    type: boolean
+        api.chat.v1.ListRoomsResponse:
+            type: object
+            properties:
+                rooms:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/api.chat.v1.Room'
+                total:
+                    type: integer
+                    format: int32
+        api.chat.v1.MarkAsReadRequest:
+            type: object
+            properties:
+                messageId:
+                    type: string
+                userId:
+                    type: string
+        api.chat.v1.MarkAsReadResponse:
+            type: object
+            properties:
+                success:
+                    type: boolean
+        api.chat.v1.Message:
+            type: object
+            properties:
+                id:
+                    type: string
+                roomId:
+                    type: string
+                userId:
+                    type: string
+                username:
+                    type: string
+                content:
+                    type: string
+                type:
+                    type: string
+                isEdited:
+                    type: boolean
+                createdAt:
+                    type: string
+                editedAt:
+                    type: string
+            description: Message model
+        api.chat.v1.Room:
+            type: object
+            properties:
+                id:
+                    type: string
+                name:
+                    type: string
+                description:
+                    type: string
+                type:
+                    type: string
+                createdBy:
+                    type: string
+                memberCount:
+                    type: integer
+                    format: int32
+                createdAt:
+                    type: string
+                members:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/api.chat.v1.RoomMember'
+            description: Room model
+        api.chat.v1.RoomMember:
+            type: object
+            properties:
+                userId:
+                    type: string
+                username:
+                    type: string
+                role:
+                    type: string
+                joinedAt:
+                    type: string
+        api.chat.v1.SendMessageRequest:
+            type: object
+            properties:
+                roomId:
+                    type: string
+                content:
+                    type: string
+                type:
+                    type: string
+            description: Request/Response messages
+        api.user.v1.LoginRequest:
+            type: object
+            properties:
+                email:
+                    type: string
+                password:
+                    type: string
+        api.user.v1.LoginResponse:
+            type: object
+            properties:
+                user:
+                    $ref: '#/components/schemas/api.user.v1.User'
+                token:
+                    type: string
+        api.user.v1.RegisterRequest:
+            type: object
+            properties:
+                username:
+                    type: string
+                email:
+                    type: string
+                password:
+                    type: string
+        api.user.v1.RegisterResponse:
+            type: object
+            properties:
+                user:
+                    $ref: '#/components/schemas/api.user.v1.User'
+                token:
+                    type: string
+        api.user.v1.UpdateStatusRequest:
+            type: object
+            properties:
+                userId:
+                    type: string
+                status:
+                    type: string
+        api.user.v1.UpdateStatusResponse:
+            type: object
+            properties:
+                success:
+                    type: boolean
+                status:
+                    type: string
+        api.user.v1.User:
+            type: object
+            properties:
+                id:
+                    type: string
+                username:
+                    type: string
+                email:
+                    type: string
+                avatarUrl:
+                    type: string
+                status:
+                    type: string
+                lastSeen:
+                    type: string
+                createdAt:
+                    type: string
+            description: User model
+tags:
+    - name: ChatService
+      description: Chat service for messaging functionality
+    - name: RoomService
+      description: Room service for room management
+    - name: UserService
+      description: User service for authentication and user management

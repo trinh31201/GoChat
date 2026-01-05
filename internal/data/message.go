@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-kratos/kratos/v2/log"
 	chatV1 "github.com/yourusername/chat-app/api/chat/v1"
+	"github.com/yourusername/chat-app/internal/metrics"
 )
 
 // MessageRepo defines the interface for message data operations
@@ -34,6 +35,8 @@ func NewMessageRepo(data *Data, logger log.Logger) MessageRepo {
 }
 
 func (r *messageRepo) CreateMessage(ctx context.Context, message *chatV1.Message) (*chatV1.Message, error) {
+	dbStart := time.Now()
+
 	// Get username for the message (denormalized for performance)
 	var username string
 	userQuery := `SELECT username FROM users WHERE id = $1`
@@ -70,11 +73,14 @@ func (r *messageRepo) CreateMessage(ctx context.Context, message *chatV1.Message
 	}
 
 	message.CreatedAt = createdAt.Unix()
+	metrics.RecordDBQuery("create_message", dbStart)
 
 	// Cache recent messages in Redis for fast access
 	if r.data.redis != nil {
+		redisStart := time.Now()
 		r.cacheMessage(ctx, message)
 		r.updateUnreadCounts(ctx, message)
+		metrics.RecordRedisOperation("cache_message", redisStart)
 	}
 
 	r.log.Infof("created message: id=%d, room_id=%d, user_id=%d", message.Id, message.RoomId, message.UserId)

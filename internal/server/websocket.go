@@ -72,6 +72,7 @@ func (c *Client) safeSend(message []byte) bool {
 	default:
 		// Channel is full - track dropped message
 		c.Hub.droppedMessages.Add(1)
+		metrics.RecordDroppedMessage()
 		return false
 	}
 }
@@ -189,6 +190,10 @@ func (h *Hub) monitorPerformance() {
 		regLen := len(h.register)
 		unregLen := len(h.unregister)
 
+		// Update Prometheus metrics
+		metrics.UpdateGoroutinesCount()
+		metrics.SetActiveRooms(totalRooms)
+
 		h.log.Infof("[PERF] goroutines=%d clients=%d rooms=%d dropped=%d activeBroadcasts=%d registerQueue=%d/%d unregisterQueue=%d/%d",
 			goroutines, totalClients, totalRooms, dropped, broadcasts, regLen, 100, unregLen, 100)
 	}
@@ -207,7 +212,11 @@ func (h *Hub) Run() {
 			}
 			h.rooms[client.RoomID][client] = true
 			clientCount := len(h.rooms[client.RoomID])
+			roomCount := len(h.rooms)
 			metrics.IncWebSocketConnection()
+			metrics.RecordRoomJoin()
+			metrics.SetActiveRooms(roomCount)
+			metrics.RecordUsersPerRoom(clientCount)
 			h.mu.Unlock()
 
 			h.log.Infof("Client %s joined room %d (total clients in room: %d)", client.Username, client.RoomID, clientCount)
@@ -243,6 +252,7 @@ func (h *Hub) Run() {
 					delete(clients, client)
 					close(client.Send)
 					metrics.DecWebSocketConnection()
+					metrics.RecordRoomLeave()
 					if len(clients) == 0 {
 						delete(h.rooms, client.RoomID)
 					} else {
@@ -251,7 +261,9 @@ func (h *Hub) Run() {
 						for cl := range clients {
 							remainingClients[cl] = true
 						}
+						metrics.RecordUsersPerRoom(len(clients))
 					}
+					metrics.SetActiveRooms(len(h.rooms))
 				}
 			}
 			h.mu.Unlock()
@@ -348,14 +360,14 @@ func HandleWebSocketWithUserClient(hub *Hub, userClient *client.UserClient) http
 // readPumpWithUserClient handles incoming messages using User Service for auth
 func (c *Client) readPumpWithUserClient(userClient *client.UserClient) {
 	defer func() {
-		// Calculate session duration
-		duration := time.Since(c.ConnectedAt)
+		// Calculate session duration and record metric
+		metrics.RecordConnectionDuration(c.ConnectedAt)
 		c.Hub.log.Infow("WebSocket disconnected",
 			"user_id", c.ID,
 			"username", c.Username,
 			"room_id", c.RoomID,
 			"ip", c.IP,
-			"duration_seconds", duration.Seconds(),
+			"duration_seconds", time.Since(c.ConnectedAt).Seconds(),
 		)
 
 		if c.ID != 0 && c.RoomID != 0 {
@@ -732,6 +744,7 @@ func (c *Client) sendMessage(wsMsg *WebSocketMessage) error {
 
 	c.Hub.log.Infof("Published to Redis channel: %s", channel)
 	metrics.RecordMessageSent("public") // Track message sent
+	metrics.RecordMessageLatency(startTime)
 	return nil
 }
 
@@ -808,8 +821,10 @@ func (h *Hub) subscribeToRedis() {
 		h.log.Infof("Broadcasting to %d local clients in room %d", len(clients), redisMsg.RoomID)
 
 		// Send to all local WebSocket connections
+		broadcastStart := time.Now()
 		for client := range clients {
 			go client.safeSend(msgBytes)
 		}
+		metrics.RecordBroadcastDuration(broadcastStart)
 	}
 }
