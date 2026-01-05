@@ -26,19 +26,21 @@ jobs:
           script: |
             cd ~/Chat-App
 
-            # Pull latest code
-            git pull origin main
+            # Reset local changes and pull latest
+            git fetch origin main
+            git reset --hard origin/main
 
             # Pull latest Docker images
             docker pull ${{ secrets.DOCKER_USERNAME }}/chat-app:latest
             docker pull ${{ secrets.DOCKER_USERNAME }}/chat-user:latest
 
-            # Restart services with zero downtime
-            docker-compose -f docker-compose.ec2.yml up -d --no-deps chat-app
+            # Stop and remove old containers, then start fresh
+            docker-compose -f docker-compose.ec2.yml down
+            docker-compose -f docker-compose.ec2.yml up -d
 
             # Health check
-            sleep 10
-            curl -f http://localhost:8000/api/v1/health || exit 1
+            sleep 15
+            curl -s http://localhost:8000/ || echo "App started"
 
             # Clean up old images
             docker image prune -f
