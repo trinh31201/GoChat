@@ -33,8 +33,9 @@ export const options = {
 };
 
 // AWS endpoint
-const BASE_URL = 'http://54.79.163.178/api/v1';
-const WS_URL = 'ws://54.79.163.178/ws';
+const USER_URL = 'http://54.79.163.178:8001/api/v1';  // User service for auth
+const CHAT_URL = 'http://54.79.163.178:8000/api/v1';  // Chat service
+const WS_URL = 'ws://54.79.163.178:8000/ws';
 
 // Pre-shared test token
 const TEST_TOKEN = __ENV.TOKEN || '';
@@ -48,13 +49,13 @@ export function setup() {
   const email = 'loadtest50k@test.com';
   const password = 'test123';
 
-  http.post(`${BASE_URL}/users/register`, JSON.stringify({
+  http.post(`${USER_URL}/users/register`, JSON.stringify({
     email: email,
     username: 'loadtest50k',
     password: password,
   }), { headers: { 'Content-Type': 'application/json' } });
 
-  const loginRes = http.post(`${BASE_URL}/users/login`, JSON.stringify({
+  const loginRes = http.post(`${USER_URL}/users/login`, JSON.stringify({
     email: email,
     password: password,
   }), { headers: { 'Content-Type': 'application/json' } });

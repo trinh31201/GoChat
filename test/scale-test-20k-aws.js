@@ -33,8 +33,8 @@ export const options = {
 };
 
 // AWS endpoint
-const BASE_URL = 'http://54.79.163.178/api/v1';
-const WS_URL = 'ws://54.79.163.178/ws';
+const BASE_URL = 'http://54.79.163.178:8000/api/v1';
+const WS_URL = 'ws://54.79.163.178:8000/ws';
 
 // Pre-shared test token (get one valid token before running)
 // Or set via environment: k6 run -e TOKEN=xxx test.js

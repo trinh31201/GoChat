@@ -26,20 +26,53 @@ services:
       - chat-network
     restart: unless-stopped
 
-  chat-app:
-    image: trinh312/chat-app:latest
-    container_name: chat-app
+  user-service:
+    image: trinh312/chat-user:latest
+    container_name: chat-user
     depends_on:
       - postgres
       - redis
     environment:
       - DATABASE_URL=postgresql://chatuser:chatpass@postgres:5432/chatdb?sslmode=disable
       - REDIS_URL=redis:6379
+      - JWT_SECRET=your-production-secret-key-change-this
+    ports:
+      - "8001:8000"
+      - "9001:9000"
+    networks:
+      - chat-network
+    restart: unless-stopped
+
+  chat-app:
+    image: trinh312/chat-app:latest
+    container_name: chat-app
+    depends_on:
+      - postgres
+      - redis
+      - user-service
+    environment:
+      - DATABASE_URL=postgresql://chatuser:chatpass@postgres:5432/chatdb?sslmode=disable
+      - REDIS_URL=redis:6379
       - REDIS_PASSWORD=
       - JWT_SECRET=your-production-secret-key-change-this
+      - USER_SERVICE_ADDR=user-service:9000
     ports:
       - "8000:8000"
       - "9000:9000"
+    networks:
+      - chat-network
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    container_name: chat-nginx
+    depends_on:
+      - chat-app
+      - user-service
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.ec2.conf:/etc/nginx/nginx.conf:ro
     networks:
       - chat-network
     restart: unless-stopped
