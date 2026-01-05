@@ -1,0 +1,54 @@
+name: CD
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+    branches: [main]
+
+jobs:
+  deploy:
+    name: Deploy to AWS EC2
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd ~/Chat-App
+
+            # Pull latest code
+            git pull origin main
+
+            # Pull latest Docker images
+            docker pull ${{ secrets.DOCKER_USERNAME }}/chat-app:latest
+            docker pull ${{ secrets.DOCKER_USERNAME }}/chat-user:latest
+
+            # Restart services with zero downtime
+            docker-compose -f docker-compose.ec2.yml up -d --no-deps chat-app
+
+            # Health check
+            sleep 10
+            curl -f http://localhost:8000/api/v1/health || exit 1
+
+            # Clean up old images
+            docker image prune -f
+
+            echo "Deployment successful!"
+
+      - name: Notify on success
+        if: success()
+        run: echo "Deployed successfully to production!"
+
+      - name: Notify on failure
+        if: failure()
+        run: echo "Deployment failed!"
